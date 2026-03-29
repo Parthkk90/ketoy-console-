@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
 import { useScreenStore } from '../store/screenStore'
 import { screenAPI } from '../services/api'
@@ -8,12 +8,12 @@ import VersionHistoryModal from '../components/VersionHistoryModal'
 
 export default function ScreenEditorPage() {
   const { packageName, screenName } = useParams()
-  const navigate = useNavigate()
-  const { currentScreen, setCurrentScreen, jsonContent, setJsonContent } = useScreenStore()
+  const { currentScreen, setCurrentScreen, setJsonContent } = useScreenStore()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [editorValue, setEditorValue] = useState('')
+  const [lastSavedContent, setLastSavedContent] = useState('')
   const [hasChanges, setHasChanges] = useState(false)
   const [showVersionHistory, setShowVersionHistory] = useState(false)
   const [newVersion, setNewVersion] = useState('')
@@ -23,12 +23,17 @@ export default function ScreenEditorPage() {
     fetchScreenDetails()
   }, [packageName, screenName])
 
+  useEffect(() => {
+    setHasChanges(editorValue !== lastSavedContent)
+  }, [editorValue, lastSavedContent])
+
   const fetchScreenDetails = async () => {
     setLoading(true)
     try {
       const response = await screenAPI.getDetails(packageName, screenName)
-      const screen = response.data.data.screen
-      const content = response.data.data.jsonContent
+      const payload = response.data?.data || response.data
+      const screen = payload.screen || payload
+      const content = payload.definition || payload.jsonContent || payload.definitionJson || payload.ui || payload
       
       setCurrentScreen(screen)
       setJsonContent(content)
@@ -39,17 +44,17 @@ export default function ScreenEditorPage() {
         : JSON.stringify(content, null, 2)
       
       setEditorValue(formatted)
+      setLastSavedContent(formatted)
       setError(null)
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to fetch screen details')
+      setError(err?.response?.data?.message || err?.message || 'Failed to fetch screen details')
     } finally {
       setLoading(false)
     }
   }
 
   const handleEditorChange = (value) => {
-    setEditorValue(value)
-    setHasChanges(true)
+    setEditorValue(value || '')
   }
 
   const handleSave = async () => {
@@ -72,7 +77,7 @@ export default function ScreenEditorPage() {
       })
       
       setJsonContent(editorValue)
-      setHasChanges(false)
+      setLastSavedContent(editorValue)
       setNewVersion('')
       setShowVersionInput(false)
       alert(`Screen saved successfully as version ${newVersion}!`)
@@ -83,7 +88,7 @@ export default function ScreenEditorPage() {
       if (err instanceof SyntaxError) {
         setError('Invalid JSON format. Please check your JSON.')
       } else {
-        setError(err.response?.data?.error || err.response?.data?.message || 'Failed to save screen')
+        setError(err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Failed to save screen')
       }
     } finally {
       setSaving(false)
@@ -92,7 +97,6 @@ export default function ScreenEditorPage() {
 
   const handleLoadVersion = (versionContent) => {
     setEditorValue(versionContent)
-    setHasChanges(true)
     setShowVersionInput(true)
   }
 
@@ -108,18 +112,13 @@ export default function ScreenEditorPage() {
 
   const handleRevert = () => {
     if (hasChanges && !confirm('Discard all changes?')) return
-    
-    const formatted = typeof jsonContent === 'string' 
-      ? JSON.stringify(JSON.parse(jsonContent), null, 2)
-      : JSON.stringify(jsonContent, null, 2)
-    
-    setEditorValue(formatted)
-    setHasChanges(false)
+
+    setEditorValue(lastSavedContent)
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-black">
+      <div className="flex items-center justify-center h-screen bg-[#070b12]">
         <div className="text-center">
           <div className="inline-block w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
           <p className="mt-4 text-gray-400">Loading screen...</p>
@@ -129,18 +128,18 @@ export default function ScreenEditorPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-black">
+    <div className="h-screen flex flex-col bg-[#070b12]">
       {/* Header */}
-      <div className="bg-[#1a2332] border-b border-gray-800 px-6 py-3">
+      <div className="ketoy-card-surface-soft border-b border-white/10 px-6 py-3 rounded-none">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             {/* Breadcrumb */}
             <div className="flex items-center gap-2 text-sm">
-              <Link to="/projects" className="text-gray-400 hover:text-white">
+              <Link to="/projects" className="text-gray-400 hover:text-white hover:underline">
                 App
               </Link>
               <span className="text-gray-600">/</span>
-              <Link to={`/projects/${packageName}`} className="text-gray-400 hover:text-white">
+              <Link to={`/projects/${packageName}`} className="text-gray-400 hover:text-white hover:underline">
                 {packageName}
               </Link>
               <span className="text-gray-600">/</span>
@@ -203,9 +202,13 @@ export default function ScreenEditorPage() {
                 }
               }}
               disabled={saving || !hasChanges}
-              className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-500/20"
+              className={`px-4 py-2 text-white font-medium rounded-lg transition-colors disabled:cursor-not-allowed ${
+                saving
+                  ? 'bg-gray-600 shadow-lg shadow-gray-700/20'
+                  : 'bg-[#1A73E8] hover:bg-[#1765cc] disabled:opacity-50 shadow-lg shadow-blue-900/40'
+              }`}
             >
-              {saving ? 'Saving...' : showVersionInput && newVersion ? 'Save' : hasChanges ? 'Save Version' : 'Saved'}
+              {saving ? 'Saving...' : hasChanges ? 'Save Changes' : 'Saved'}
             </button>
           </div>
         </div>
@@ -221,8 +224,8 @@ export default function ScreenEditorPage() {
       {/* Editor and Preview */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left: JSON Editor */}
-        <div className="flex-1 flex flex-col border-r border-gray-800">
-          <div className="bg-[#1a2332] px-4 py-2 border-b border-gray-800 flex items-center justify-between">
+        <div className="flex-1 flex flex-col border-r border-white/10 ketoy-card-surface-soft rounded-none">
+          <div className="ketoy-card-surface-soft rounded-none px-4 py-2 border-b border-white/10 flex items-center justify-between">
             <h2 className="text-sm font-medium text-gray-300">
               <span className="text-gray-500">{'{}'}</span> {screenName}.json
             </h2>
@@ -253,14 +256,14 @@ export default function ScreenEditorPage() {
         </div>
 
         {/* Right: Mobile Preview */}
-        <div className="w-[400px] flex flex-col bg-[#1a2332]">
-          <div className="px-4 py-2 border-b border-gray-800">
+        <div className="w-[380px] xl:w-[420px] flex flex-col ketoy-card-surface-soft rounded-none">
+          <div className="px-4 py-2 border-b border-white/10">
             <h2 className="text-sm font-medium text-gray-300">Preview</h2>
           </div>
-          <div className="flex-1 flex items-center justify-center p-8">
+          <div className="flex-1 flex flex-col items-center justify-center p-8 gap-4">
             {/* Mobile Frame */}
             <div className="relative">
-              <div className="w-[300px] h-[600px] bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border-[14px] border-gray-900">
+              <div className="w-[290px] h-[590px] bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border-[14px] border-gray-900">
                 <div className="w-full h-full overflow-auto">
                   <MobilePreview jsonContent={editorValue} />
                 </div>
@@ -268,6 +271,9 @@ export default function ScreenEditorPage() {
               {/* Notch */}
               <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-1/3 h-[28px] bg-gray-900 rounded-b-2xl"></div>
             </div>
+            <p className="text-xs text-center text-[rgba(255,255,255,0.4)]">
+              Preview is a structural placeholder. Live render requires the Android SDK.
+            </p>
           </div>
         </div>
       </div>

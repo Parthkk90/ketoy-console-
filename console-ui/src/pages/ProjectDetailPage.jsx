@@ -20,12 +20,46 @@ export default function ProjectDetailPage() {
     fetchScreens()
   }, [packageName])
 
+  const timeAgo = (dateString) => {
+    if (!dateString) return 'just now'
+
+    const date = new Date(dateString)
+    if (Number.isNaN(date.getTime())) return 'just now'
+
+    const diffMs = Date.now() - date.getTime()
+    const diffMinutes = Math.floor(diffMs / (1000 * 60))
+
+    if (diffMinutes < 1) return 'just now'
+    if (diffMinutes < 60) return `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`
+
+    const diffHours = Math.floor(diffMinutes / 60)
+    if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`
+
+    const diffDays = Math.floor(diffHours / 24)
+    if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`
+
+    const diffMonths = Math.floor(diffDays / 30)
+    if (diffMonths < 12) return `${diffMonths} month${diffMonths === 1 ? '' : 's'} ago`
+
+    const diffYears = Math.floor(diffMonths / 12)
+    return `${diffYears} year${diffYears === 1 ? '' : 's'} ago`
+  }
+
+  const getUpdatedByEmail = (screen) => {
+    const updatedBy = screen?.updatedBy
+    if (!updatedBy) return 'unknown'
+
+    if (typeof updatedBy === 'string') return updatedBy
+    return updatedBy.email || updatedBy.username || 'unknown'
+  }
+
   const fetchAppDetails = async () => {
     try {
       const response = await appAPI.getDetails(packageName)
-      setCurrentApp(response.data.data.app)
+      const appData = response.data?.data?.app || response.data?.data || response.data
+      setCurrentApp(appData)
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to fetch app details')
+      setError(err?.response?.data?.message || err?.message || 'Failed to fetch app details')
     }
   }
 
@@ -33,10 +67,11 @@ export default function ProjectDetailPage() {
     setLoading(true)
     try {
       const response = await screenAPI.getAll(packageName)
-      setScreens(response.data.data.screens || [])
+      const screensData = response.data?.data?.screens || response.data?.data || response.data || []
+      setScreens(Array.isArray(screensData) ? screensData : [])
       setError(null)
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to fetch screens')
+      setError(err?.response?.data?.message || err?.message || 'Failed to fetch screens')
     } finally {
       setLoading(false)
     }
@@ -47,7 +82,7 @@ export default function ProjectDetailPage() {
       await appAPI.delete(packageName)
       navigate('/projects')
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to delete app')
+      alert(err?.response?.data?.message || err?.message || 'Failed to delete app')
     }
   }
 
@@ -58,7 +93,7 @@ export default function ProjectDetailPage() {
       await screenAPI.delete(packageName, screenName)
       fetchScreens()
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to delete screen')
+      alert(err?.response?.data?.message || err?.message || 'Failed to delete screen')
     }
   }
 
@@ -66,7 +101,7 @@ export default function ProjectDetailPage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm mb-6">
-        <Link to="/projects" className="text-gray-400 hover:text-white">
+        <Link to="/projects" className="text-gray-400 hover:text-white hover:underline">
           App
         </Link>
         <span className="text-gray-600">/</span>
@@ -74,24 +109,26 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Header */}
-      <div className="flex justify-between items-start mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-white mb-2 select-none">{currentApp?.appName}</h1>
-          <p className="text-gray-400 select-none">{currentApp?.packageName}</p>
+      <div className="ketoy-card-surface-soft flex flex-col lg:flex-row lg:justify-between lg:items-start gap-6 mb-8 rounded-2xl p-6">
+        <div className="ketoy-card-content">
+          <p className="text-xs uppercase tracking-[0.18em] text-gray-500">App Detail</p>
+          <h1 className="text-3xl font-semibold text-white mt-2 mb-2 select-none">{currentApp?.appName}</h1>
+          <p className="text-blue-100/80 font-mono text-sm select-none">{currentApp?.packageName}</p>
           {currentApp?.description && (
-            <p className="text-gray-500 mt-2 select-none">{currentApp.description}</p>
+            <p className="text-gray-400 mt-3 max-w-2xl select-none">{currentApp.description}</p>
           )}
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 ketoy-card-content">
           <button
             onClick={() => setIsModalOpen(true)}
-            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg transition-colors shadow-lg shadow-blue-500/20"
+            title="Add a new SDUI screen to this app"
+            className="px-4 py-2 bg-[#1A73E8] hover:bg-[#1765cc] text-white font-medium rounded-xl transition-colors shadow-lg shadow-blue-900/40"
           >
             + Add Screen
           </button>
           <button
             onClick={() => setShowDeleteConfirm(true)}
-            className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/50 font-medium rounded-lg transition-colors"
+            className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/50 font-medium rounded-xl transition-colors"
           >
             Delete App
           </button>
@@ -117,7 +154,7 @@ export default function ProjectDetailPage() {
       {!loading && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {screens.length === 0 ? (
-            <div className="col-span-full bg-[#1a2332] rounded-lg border border-gray-800 px-6 py-12 text-center">
+            <div className="col-span-full bg-[#121d2f] rounded-2xl border border-white/10 px-6 py-12 text-center">
               <svg className="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
@@ -128,14 +165,17 @@ export default function ProjectDetailPage() {
             screens.map((screen) => (
               <div
                 key={screen.id || screen._id}
-                className="bg-[#1a2332] rounded-lg border border-gray-800 p-6 hover:border-gray-700 transition-colors"
+                className="ketoy-card-surface rounded-2xl p-6 hover:bg-[#15233a] transition-colors"
               >
+                <div className="ketoy-card-content">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold text-white mb-1">
                       {screen.displayName || screen.screenName}
                     </h3>
-                    <p className="text-sm text-gray-500">{screen.screenName}</p>
+                    <p className="text-sm text-gray-500">
+                      Last updated by {getUpdatedByEmail(screen)} · {timeAgo(screen.updatedAt || screen.createdAt)}
+                    </p>
                   </div>
                   <button
                     onClick={() => handleDeleteScreen(screen.screenName)}
@@ -152,17 +192,20 @@ export default function ProjectDetailPage() {
                   <p className="text-sm text-gray-400 mb-4">{screen.description}</p>
                 )}
                 
-                <div className="flex items-center justify-between text-xs text-gray-500 mb-4">
-                  <span>Version {screen.version}</span>
-                  <span>{screen.metadata?.fileSize ? `${(screen.metadata.fileSize / 1024).toFixed(1)} KB` : ''}</span>
-                </div>
+                {(screen.version || screen.metadata?.fileSize) && (
+                  <div className="flex items-center justify-between text-xs text-gray-500 mb-4">
+                    <span>{screen.version ? `Version ${screen.version}` : ''}</span>
+                    <span>{screen.metadata?.fileSize ? `${(screen.metadata.fileSize / 1024).toFixed(1)} KB` : ''}</span>
+                  </div>
+                )}
 
                 <Link
                   to={`/projects/${packageName}/screens/${screen.screenName}`}
-                  className="block w-full px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white text-center font-medium rounded-lg transition-colors"
+                  className="block w-full px-4 py-2 bg-[#1A73E8] hover:bg-[#1765cc] text-white text-center font-medium rounded-lg transition-colors"
                 >
                   Edit Screen
                 </Link>
+                </div>
               </div>
             ))
           )}
@@ -182,11 +225,10 @@ export default function ProjectDetailPage() {
       {/* Delete Confirmation */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-          <div className="bg-[#1a2332] rounded-lg max-w-md w-full p-6 border border-gray-800">
-            <h2 className="text-xl font-bold text-white mb-4">Delete App</h2>
+          <div className="bg-[#111b2b] rounded-2xl max-w-md w-full p-6 border border-red-500/40 shadow-2xl shadow-red-950/30">
+            <h2 className="text-xl font-bold text-white mb-4">Delete app?</h2>
             <p className="text-gray-300 mb-6">
-              Are you sure you want to delete <span className="font-semibold">{currentApp?.appName}</span>? 
-              This action cannot be undone and will delete all screens associated with this app.
+              This will permanently delete <span className="font-semibold">{packageName}</span> and its metadata. Screens must be deleted separately. This cannot be undone.
             </p>
             <div className="flex gap-3">
               <button
