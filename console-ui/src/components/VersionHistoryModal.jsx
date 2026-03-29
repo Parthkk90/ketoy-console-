@@ -19,7 +19,8 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
     setLoading(true)
     try {
       const response = await screenAPI.getVersions(packageName, screenName)
-      setVersions(response.data.data.versions || [])
+      const versionsData = response.data?.data?.versions || response.data?.data || []
+      setVersions(Array.isArray(versionsData) ? versionsData : [])
     } catch (err) {
       console.error('Failed to fetch versions:', err)
       alert('Failed to load version history')
@@ -32,8 +33,9 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
     setLoadingVersion(version)
     try {
       const response = await screenAPI.getByVersion(packageName, screenName, version)
+      const payload = response.data?.data || response.data || {}
       setSelectedVersion(version)
-      setViewingJson(JSON.stringify(response.data.data.ui, null, 2))
+      setViewingJson(JSON.stringify(payload.definition || payload.ui || payload, null, 2))
     } catch (err) {
       console.error('Failed to fetch version:', err)
       alert('Failed to load version content')
@@ -57,7 +59,7 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
     setRolling(true)
     try {
       const response = await screenAPI.rollback(packageName, screenName, version)
-      alert(response.data.message || 'Rollback successful!')
+      alert(response.data?.data?.message || response.data?.message || 'Rollback successful!')
       fetchVersions()
       setSelectedVersion(null)
       setViewingJson(null)
@@ -67,7 +69,7 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
       }
     } catch (err) {
       console.error('Rollback failed:', err)
-      alert(err.response?.data?.error || 'Failed to rollback version')
+      alert(err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Failed to rollback version')
     } finally {
       setRolling(false)
     }

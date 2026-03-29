@@ -37,14 +37,13 @@ export default function CreateScreenModal({ isOpen, onClose, packageName, onSucc
       // Validate JSON
       JSON.parse(formData.jsonContent)
       
-      const response = await screenAPI.upload(packageName, {
-        screenName: formData.screenName,
+      const response = await screenAPI.upload(packageName, formData.screenName, {
         displayName: formData.displayName,
         description: formData.description,
         jsonContent: formData.jsonContent // Send as string
       })
       
-      const newScreen = response.data.data.screen
+      const newScreen = response.data.data || response.data
       addScreen(newScreen)
       
       if (onSuccess) {
@@ -55,7 +54,7 @@ export default function CreateScreenModal({ isOpen, onClose, packageName, onSucc
       if (err instanceof SyntaxError) {
         setError('Invalid JSON format. Please check your JSON.')
       } else {
-        setError(err.response?.data?.message || 'Failed to create screen')
+        setError(err?.response?.data?.message || err?.message || 'Failed to create screen')
       }
     } finally {
       setLoading(false)

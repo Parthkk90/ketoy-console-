@@ -32,7 +32,7 @@ export default function CreateAppModal({ isOpen, onClose, onSuccess }) {
         }
       })
       
-      const newApp = response.data.data.app
+      const newApp = response.data?.data || response.data
       const newApiKey = newApp.apiKey
       
       addApp(newApp)
@@ -41,7 +41,7 @@ export default function CreateAppModal({ isOpen, onClose, onSuccess }) {
       
       // Don't close immediately, show API key first
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to create app')
+      setError(err?.response?.data?.message || err?.message || 'Failed to create app')
     } finally {
       setLoading(false)
     }

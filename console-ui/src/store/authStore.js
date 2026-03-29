@@ -1,29 +1,65 @@
 import { create } from 'zustand'
+import {
+  clearDeveloperTokenCookie,
+  getDeveloperTokenFromCookie,
+  setDeveloperTokenCookie
+} from '../services/authCookie'
+
+const TOKEN_KEY = 'developerToken'
+const DEVELOPER_KEY = 'developer'
+const USERNAME_KEY = 'ketoy_username'
+
+export const getIdToken = () => getDeveloperTokenFromCookie() || localStorage.getItem(TOKEN_KEY)
+
+const parseStoredDeveloper = () => {
+  const storedDeveloper = localStorage.getItem(DEVELOPER_KEY)
+  if (!storedDeveloper) return null
+
+  try {
+    return JSON.parse(storedDeveloper)
+  } catch {
+    return null
+  }
+}
+
+const clearAuthStorage = () => {
+  clearDeveloperTokenCookie()
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(DEVELOPER_KEY)
+  localStorage.removeItem(USERNAME_KEY)
+}
 
 export const useAuthStore = create((set) => {
-  // Initialize from localStorage
-  const storedApiKey = localStorage.getItem('developerApiKey')
-  const storedDeveloper = localStorage.getItem('developer')
+  const storedToken = getIdToken()
+  const storedDeveloper = parseStoredDeveloper()
   
   return {
-    developer: storedDeveloper ? JSON.parse(storedDeveloper) : null,
-    developerApiKey: storedApiKey,
+    developer: storedDeveloper,
+    developerToken: storedToken,
+    isAuthenticated: Boolean(storedToken),
+    getIdToken,
     
-    setAuth: (developer, apiKey) => {
-      localStorage.setItem('developerApiKey', apiKey)
-      localStorage.setItem('developer', JSON.stringify(developer))
-      set({ developer, developerApiKey: apiKey })
+    setAuth: (developer, token, username) => {
+      setDeveloperTokenCookie(token)
+      localStorage.setItem(TOKEN_KEY, token)
+      localStorage.setItem(DEVELOPER_KEY, JSON.stringify(developer))
+      if (username) {
+        localStorage.setItem(USERNAME_KEY, username)
+      }
+      set({ developer, developerToken: token, isAuthenticated: true })
     },
     
     updateDeveloper: (developer) => {
-      localStorage.setItem('developer', JSON.stringify(developer))
+      localStorage.setItem(DEVELOPER_KEY, JSON.stringify(developer))
       set({ developer })
     },
     
     logout: () => {
-      localStorage.removeItem('developerApiKey')
-      localStorage.removeItem('developer')
-      set({ developer: null, developerApiKey: null })
+      clearAuthStorage()
+      set({ developer: null, developerToken: null, isAuthenticated: false })
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
     }
   }
 })
