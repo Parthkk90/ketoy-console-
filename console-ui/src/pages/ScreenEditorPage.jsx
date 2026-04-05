@@ -1,120 +1,139 @@
-import { useState, useEffect } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import Editor from '@monaco-editor/react'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import { useScreenStore } from '../store/screenStore'
 import { screenAPI } from '../services/api'
-import MobilePreview from '../components/MobilePreview'
 import VersionHistoryModal from '../components/VersionHistoryModal'
+import { mapApiErrorMessage, prepareKtwUploadBinary, validateKtwFile } from '../services/ktwUtils'
 
 export default function ScreenEditorPage() {
-  const { packageName, screenName } = useParams()
-  const { currentScreen, setCurrentScreen, setJsonContent } = useScreenStore()
+  const { packageName: routePackageName, screenName: routeScreenName } = useParams()
+  const { currentScreen, setCurrentScreen } = useScreenStore()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
-  const [editorValue, setEditorValue] = useState('')
-  const [lastSavedContent, setLastSavedContent] = useState('')
-  const [hasChanges, setHasChanges] = useState(false)
+  const [uploadMessage, setUploadMessage] = useState('')
   const [showVersionHistory, setShowVersionHistory] = useState(false)
-  const [newVersion, setNewVersion] = useState('')
-  const [showVersionInput, setShowVersionInput] = useState(false)
+  const [selectedFile, setSelectedFile] = useState(null)
+  const [screenMeta, setScreenMeta] = useState(null)
+
+  const sanitizeRouteId = (value) => {
+    if (!value) return ''
+    try {
+      return decodeURIComponent(value).trim()
+    } catch {
+      return String(value).trim()
+    }
+  }
+
+  const packageName = sanitizeRouteId(routePackageName)
+  const screenName = sanitizeRouteId(routeScreenName)
 
   useEffect(() => {
     fetchScreenDetails()
   }, [packageName, screenName])
 
-  useEffect(() => {
-    setHasChanges(editorValue !== lastSavedContent)
-  }, [editorValue, lastSavedContent])
-
   const fetchScreenDetails = async () => {
     setLoading(true)
+
+    if (!packageName || !screenName) {
+      setCurrentScreen(null)
+      setScreenMeta(null)
+      setError('Invalid appId or screenId')
+      setLoading(false)
+      return
+    }
+
     try {
       const response = await screenAPI.getDetails(packageName, screenName)
       const payload = response.data?.data || response.data
       const screen = payload.screen || payload
-      const content = payload.definition || payload.jsonContent || payload.definitionJson || payload.ui || payload
-      
-      setCurrentScreen(screen)
-      setJsonContent(content)
-      
-      // Pretty print JSON for editor
-      const formatted = typeof content === 'string' 
-        ? JSON.stringify(JSON.parse(content), null, 2)
-        : JSON.stringify(content, null, 2)
-      
-      setEditorValue(formatted)
-      setLastSavedContent(formatted)
+      setCurrentScreen(screen || null)
+      setScreenMeta(screen || null)
       setError(null)
     } catch (err) {
-      setError(err?.response?.data?.message || err?.message || 'Failed to fetch screen details')
+      const status = err?.response?.status
+      const code = err?.response?.data?.error?.code
+
+      // Allow upload-first flow even when screen metadata has not been created yet.
+      if (status === 404 || code === 'NOT_FOUND') {
+        setCurrentScreen(null)
+        setScreenMeta(null)
+        setError(null)
+        return
+      }
+
+      setError(mapApiErrorMessage(err, 'Failed to fetch screen details'))
     } finally {
       setLoading(false)
     }
   }
 
-  const handleEditorChange = (value) => {
-    setEditorValue(value || '')
+  const handleFileChange = (event) => {
+    setSelectedFile(event.target.files?.[0] || null)
+    setUploadMessage('')
+    setError(null)
   }
 
-  const handleSave = async () => {
-    if (!newVersion.trim()) {
-      setShowVersionInput(true)
-      setError('Please enter a version number (e.g., 1.0.1, 2.0.0)')
+  const handleUpload = async () => {
+    const validationError = await validateKtwFile(selectedFile)
+    if (validationError) {
+      setError(validationError)
       return
     }
 
     setSaving(true)
     setError(null)
+    setUploadMessage('')
 
     try {
-      // Validate JSON
-      JSON.parse(editorValue)
-      
-      const response = await screenAPI.update(packageName, screenName, {
-        jsonContent: editorValue,
-        version: newVersion.trim()
-      })
-      
-      setJsonContent(editorValue)
-      setLastSavedContent(editorValue)
-      setNewVersion('')
-      setShowVersionInput(false)
-      alert(`Screen saved successfully as version ${newVersion}!`)
-      
-      // Reload to get updated version info
-      fetchScreenDetails()
+      const { binary, notice } = await prepareKtwUploadBinary(selectedFile)
+      await screenAPI.uploadKtw(packageName, screenName, binary)
+      setUploadMessage(notice ? `KTW uploaded successfully. ${notice}` : 'KTW uploaded successfully.')
+      setSelectedFile(null)
+      await fetchScreenDetails()
     } catch (err) {
-      if (err instanceof SyntaxError) {
-        setError('Invalid JSON format. Please check your JSON.')
-      } else {
-        setError(err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Failed to save screen')
-      }
+      setError(mapApiErrorMessage(err, 'Failed to upload screen'))
     } finally {
       setSaving(false)
     }
   }
 
-  const handleLoadVersion = (versionContent) => {
-    setEditorValue(versionContent)
-    setShowVersionInput(true)
-  }
+  const handleDownloadCurrent = async () => {
+    setError(null)
 
-  const handleFormatJson = () => {
     try {
-      const parsed = JSON.parse(editorValue)
-      const formatted = JSON.stringify(parsed, null, 2)
-      setEditorValue(formatted)
+      const response = await screenAPI.fetchPublicKtw(packageName, screenName)
+      const blob = new Blob([response.data], { type: 'application/vnd.ketoy.ktw' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${screenName}.ktw`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.setTimeout(() => URL.revokeObjectURL(url), 0)
     } catch (err) {
-      alert('Invalid JSON format. Cannot format.')
+      setError(mapApiErrorMessage(err, 'Failed to download current KTW'))
     }
   }
 
-  const handleRevert = () => {
-    if (hasChanges && !confirm('Discard all changes?')) return
+  const screenSummary = useMemo(() => {
+    const size = screenMeta?.ktwSizeBytes ?? screenMeta?.sizeBytes ?? null
+    const updatedAtRaw = screenMeta?.updatedAt || screenMeta?.createdAt || null
+    let updatedTimeLabel = null
+    if (updatedAtRaw) {
+      const date = new Date(updatedAtRaw)
+      if (!Number.isNaN(date.getTime())) {
+        updatedTimeLabel = date.toLocaleString()
+      }
+    }
 
-    setEditorValue(lastSavedContent)
-  }
+    return {
+      sizeLabel: size == null ? '-' : `${Number(size).toLocaleString()} bytes`,
+      updatedAt: updatedTimeLabel,
+      key: screenMeta?.ktwKey || screenMeta?.key || null
+    }
+  }, [screenMeta])
 
   if (loading) {
     return (
@@ -128,163 +147,157 @@ export default function ScreenEditorPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-[#070b12]">
-      {/* Header */}
-      <div className="ketoy-card-surface-soft border-b border-white/10 px-6 py-3 rounded-none">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            {/* Breadcrumb */}
-            <div className="flex items-center gap-2 text-sm">
-              <Link to="/projects" className="text-gray-400 hover:text-white hover:underline">
-                App
-              </Link>
-              <span className="text-gray-600">/</span>
-              <Link to={`/projects/${packageName}`} className="text-gray-400 hover:text-white hover:underline">
-                {packageName}
-              </Link>
-              <span className="text-gray-600">/</span>
-              <span className="text-white">{currentScreen?.displayName || screenName}</span>
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowVersionHistory(true)}
-              className="px-3 py-2 text-gray-400 hover:text-white hover:bg-[#0f1c2e] rounded-lg transition-colors flex items-center gap-2"
-              title="Version History"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="text-sm">History</span>
-            </button>
-
-            <div className="h-6 w-px bg-gray-700"></div>
-            
-            <button
-              onClick={handleFormatJson}
-              className="p-2 text-gray-400 hover:text-white hover:bg-[#0f1c2e] rounded-lg transition-colors"
-              title="Format JSON"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h8m-8 6h16" />
-              </svg>
-            </button>
-            
-            <button
-              onClick={handleRevert}
-              disabled={!hasChanges}
-              className="p-2 text-gray-400 hover:text-white hover:bg-[#0f1c2e] rounded-lg transition-colors disabled:opacity-30"
-              title="Revert changes"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-              </svg>
-            </button>
-
-            {showVersionInput && (
-              <input
-                type="text"
-                placeholder="New version (e.g., 1.1.0)"
-                value={newVersion}
-                onChange={(e) => setNewVersion(e.target.value)}
-                className="px-3 py-2 text-sm bg-[#0f1c2e] border border-gray-700 rounded-lg focus:outline-none focus:border-blue-500 text-white w-44"
-              />
-            )}
-
-            <button
-              onClick={() => {
-                if (!showVersionInput) {
-                  setShowVersionInput(true)
-                } else {
-                  handleSave()
-                }
-              }}
-              disabled={saving || !hasChanges}
-              className={`px-4 py-2 text-white font-medium rounded-lg transition-colors disabled:cursor-not-allowed ${
-                saving
-                  ? 'bg-gray-600 shadow-lg shadow-gray-700/20'
-                  : 'bg-[#1A73E8] hover:bg-[#1765cc] disabled:opacity-50 shadow-lg shadow-blue-900/40'
-              }`}
-            >
-              {saving ? 'Saving...' : hasChanges ? 'Save Changes' : 'Saved'}
-            </button>
-          </div>
-        </div>
-
-        {/* Error Message */}
-        {error && (
-          <div className="mt-3 p-3 bg-red-500/10 border border-red-500/50 rounded-lg text-red-400 text-sm">
-            {error}
-          </div>
-        )}
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="flex items-center gap-2 text-sm mb-6">
+        <Link to="/projects" className="text-gray-400 hover:text-white hover:underline">App</Link>
+        <span className="text-gray-600">/</span>
+        <Link to={`/projects/${packageName}`} className="text-gray-400 hover:text-white hover:underline">{packageName}</Link>
+        <span className="text-gray-600">/</span>
+        <span className="text-white">{currentScreen?.displayName || screenName}</span>
       </div>
 
-      {/* Editor and Preview */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left: JSON Editor */}
-        <div className="flex-1 flex flex-col border-r border-white/10 ketoy-card-surface-soft rounded-none">
-          <div className="ketoy-card-surface-soft rounded-none px-4 py-2 border-b border-white/10 flex items-center justify-between">
-            <h2 className="text-sm font-medium text-gray-300">
-              <span className="text-gray-500">{'{}'}</span> {screenName}.json
-            </h2>
-            {hasChanges && (
-              <span className="text-xs text-yellow-400">● Unsaved changes</span>
-            )}
-          </div>
-          <div className="flex-1">
-            <Editor
-              height="100%"
-              defaultLanguage="json"
-              value={editorValue}
-              onChange={handleEditorChange}
-              theme="vs-dark"
-              options={{
-                minimap: { enabled: false },
-                fontSize: 14,
-                lineNumbers: 'on',
-                scrollBeyondLastLine: false,
-                wordWrap: 'on',
-                automaticLayout: true,
-                tabSize: 2,
-                formatOnPaste: true,
-                formatOnType: true
-              }}
-            />
-          </div>
+      <div className="flex items-start justify-between gap-4 mb-6">
+        <div>
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Screen Workspace</p>
+          <h1 className="mt-2 text-3xl font-semibold text-white">{currentScreen?.displayName || screenName}</h1>
+          <p className="mt-2 text-xs text-gray-500">Upload, version, and download the current KTW binary for this screen.</p>
         </div>
 
-        {/* Right: Mobile Preview */}
-        <div className="w-[380px] xl:w-[420px] flex flex-col ketoy-card-surface-soft rounded-none">
-          <div className="px-4 py-2 border-b border-white/10">
-            <h2 className="text-sm font-medium text-gray-300">Preview</h2>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <button
+            onClick={handleDownloadCurrent}
+            className="btn-ketoy btn-ketoy-secondary inline-flex items-center gap-2"
+            title="Download current KTW"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4m0 0l4-4m-4 4V4" />
+            </svg>
+            <span className="text-sm">Download current KTW</span>
+          </button>
+
+          <button
+            onClick={() => setShowVersionHistory(true)}
+            className="btn-ketoy btn-ketoy-secondary inline-flex items-center gap-2"
+            title="Version History"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-sm">History</span>
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-4 p-4 bg-red-500/10 border border-red-500/50 rounded-lg text-red-400">
+          <div className="flex items-center justify-between gap-3">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              className="text-xs px-2.5 py-1 rounded border border-red-400/40 hover:bg-red-500/20 text-red-200"
+            >
+              Dismiss
+            </button>
           </div>
-          <div className="flex-1 flex flex-col items-center justify-center p-8 gap-4">
-            {/* Mobile Frame */}
-            <div className="relative">
-              <div className="w-[290px] h-[590px] bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border-[14px] border-gray-900">
-                <div className="w-full h-full overflow-auto">
-                  <MobilePreview jsonContent={editorValue} />
+        </div>
+      )}
+
+      {uploadMessage && (
+        <div className="mb-4 p-4 bg-green-500/10 border border-green-500/50 rounded-lg text-green-300">
+          {uploadMessage}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-4">
+        <div className="ketoy-card-surface rounded-xl p-5 border border-white/10">
+              <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Upload New KTW</p>
+              <h2 className="text-lg font-semibold text-white mt-2">{currentScreen?.displayName || screenName}</h2>
+              <p className="text-sm text-gray-400 mt-2">This screen is served as a binary .ktw file. JSON editing is no longer supported.</p>
+
+              <div className="mt-5 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">Screen ID</label>
+                  <input
+                    type="text"
+                    value={screenName}
+                    readOnly
+                    className="w-full px-4 py-2 bg-[#0f1c2e] border border-gray-700 rounded-lg text-white/80 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">Choose .ktw file</label>
+                  <div className="rounded-lg border border-white/10 bg-[#0f1c2e] px-3 py-2.5">
+                    <div className="flex items-center gap-3">
+                      <label
+                        htmlFor="screen-editor-ktw-file"
+                        className="btn-ketoy btn-ketoy-primary inline-flex items-center cursor-pointer"
+                      >
+                        Choose File
+                      </label>
+                      <span className="text-xs text-gray-400 truncate">
+                        {selectedFile ? selectedFile.name : 'No file selected'}
+                      </span>
+                    </div>
+                    <input
+                      id="screen-editor-ktw-file"
+                      type="file"
+                      onChange={handleFileChange}
+                      className="sr-only"
+                    />
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">Use a valid .ktw export file under 1 MB.</p>
+                </div>
+
+                {selectedFile && (
+                  <div className="rounded-lg border border-white/10 bg-[#0f1c2e] p-3 text-sm text-gray-300">
+                    <p className="font-medium text-white">Selected file</p>
+                    <p className="mt-1 font-mono break-all">{selectedFile.name}</p>
+                    <p className="mt-1 text-gray-400">{selectedFile.size.toLocaleString()} bytes</p>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleUpload}
+                    disabled={saving || !selectedFile}
+                    className="btn-ketoy btn-ketoy-primary"
+                  >
+                    {saving ? 'Uploading...' : 'Upload KTW'}
+                  </button>
+                  <button
+                    onClick={fetchScreenDetails}
+                    className="btn-ketoy btn-ketoy-secondary"
+                  >
+                    Refresh
+                  </button>
                 </div>
               </div>
-              {/* Notch */}
-              <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-1/3 h-[28px] bg-gray-900 rounded-b-2xl"></div>
-            </div>
-            <p className="text-xs text-center text-[rgba(255,255,255,0.4)]">
-              Preview is a structural placeholder. Live render requires the Android SDK.
-            </p>
+        </div>
+
+        <div className="ketoy-card-surface rounded-xl p-5 border border-white/10">
+          <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Current Screen Info</p>
+          <div className="mt-4 space-y-3 text-sm text-gray-300">
+            <div className="flex justify-between gap-4"><span className="text-gray-500">App</span><span className="text-white font-mono text-right">{packageName}</span></div>
+            <div className="flex justify-between gap-4"><span className="text-gray-500">Screen</span><span className="text-white font-mono text-right">{screenName}</span></div>
+            <div className="flex justify-between gap-4"><span className="text-gray-500">Size</span><span className="text-white text-right">{screenSummary.sizeLabel}</span></div>
+            <div className="flex justify-between gap-4"><span className="text-gray-500">Updated</span><span className="text-white text-right">{screenSummary.updatedAt || '—'}</span></div>
+            <div className="flex justify-between gap-4"><span className="text-gray-500">KTW Key</span><span className="text-white font-mono text-right break-all">{screenSummary.key || '—'}</span></div>
+          </div>
+
+          <div className="mt-6 rounded-lg border border-dashed border-white/10 bg-[#0f1c2e] p-4 text-sm text-gray-400">
+            KTW binaries cannot be rendered inside the console preview. Use version history or the download action to inspect the current file.
           </div>
         </div>
       </div>
 
-      {/* Version History Modal */}
       <VersionHistoryModal
         isOpen={showVersionHistory}
         onClose={() => setShowVersionHistory(false)}
         packageName={packageName}
         screenName={screenName}
-        onLoadVersion={handleLoadVersion}
+        onLoadVersion={fetchScreenDetails}
       />
     </div>
   )

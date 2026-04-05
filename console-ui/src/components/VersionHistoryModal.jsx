@@ -1,95 +1,174 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { screenAPI } from '../services/api'
+import { mapApiErrorMessage, truncateId } from '../services/ktwUtils'
+
+const formatRelativeTime = (dateString) => {
+  if (!dateString) return 'just now'
+
+  const date = new Date(dateString)
+  if (Number.isNaN(date.getTime())) return 'just now'
+
+  const diffMs = Date.now() - date.getTime()
+  const diffMinutes = Math.floor(diffMs / (1000 * 60))
+
+  if (diffMinutes < 1) return 'just now'
+  if (diffMinutes < 60) return `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`
+
+  const diffHours = Math.floor(diffMinutes / 60)
+  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`
+
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`
+
+  const diffMonths = Math.floor(diffDays / 30)
+  if (diffMonths < 12) return `${diffMonths} month${diffMonths === 1 ? '' : 's'} ago`
+
+  const diffYears = Math.floor(diffMonths / 12)
+  return `${diffYears} year${diffYears === 1 ? '' : 's'} ago`
+}
+
+const formatFileSize = (bytes) => {
+  if (bytes == null) return 'N/A'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
 
 export default function VersionHistoryModal({ isOpen, onClose, packageName, screenName, onLoadVersion }) {
   const [versions, setVersions] = useState([])
   const [loading, setLoading] = useState(true)
+  const [fetchError, setFetchError] = useState(null)
+  const [successMessage, setSuccessMessage] = useState('')
   const [selectedVersion, setSelectedVersion] = useState(null)
-  const [viewingJson, setViewingJson] = useState(null)
+  const [downloadUrl, setDownloadUrl] = useState('')
   const [loadingVersion, setLoadingVersion] = useState(null)
   const [rolling, setRolling] = useState(false)
+  const [pendingRollbackVersion, setPendingRollbackVersion] = useState('')
 
   useEffect(() => {
     if (isOpen) {
+      setFetchError(null)
+      setSuccessMessage('')
       fetchVersions()
+    } else {
+      setFetchError(null)
+      setSuccessMessage('')
     }
   }, [isOpen, packageName, screenName])
 
+  useEffect(() => {
+    if (!successMessage) return undefined
+
+    const timer = window.setTimeout(() => {
+      setSuccessMessage('')
+    }, 3000)
+
+    return () => window.clearTimeout(timer)
+  }, [successMessage])
+
+  useEffect(() => {
+    return () => {
+      if (downloadUrl) {
+        URL.revokeObjectURL(downloadUrl)
+      }
+    }
+  }, [downloadUrl])
+
   const fetchVersions = async () => {
     setLoading(true)
+    setFetchError(null)
+
     try {
       const response = await screenAPI.getVersions(packageName, screenName)
-      const versionsData = response.data?.data?.versions || response.data?.data || []
-      setVersions(Array.isArray(versionsData) ? versionsData : [])
+      const versionsData = response.data?.data?.versions || {}
+      setVersions(Array.isArray(versionsData.ktw) ? versionsData.ktw : [])
+      setSelectedVersion(null)
+      if (downloadUrl) {
+        URL.revokeObjectURL(downloadUrl)
+        setDownloadUrl('')
+      }
     } catch (err) {
       console.error('Failed to fetch versions:', err)
-      alert('Failed to load version history')
+      const status = err?.response?.status
+      if (status === 404) {
+        setFetchError('Version history is not available in this environment.')
+      } else {
+        setFetchError(mapApiErrorMessage(err, 'Failed to load version history. Please try again.'))
+      }
     } finally {
       setLoading(false)
     }
   }
 
-  const handleViewVersion = async (version) => {
-    setLoadingVersion(version)
+  const handleViewVersion = async (versionId) => {
+    setSelectedVersion(versionId)
+    if (downloadUrl) {
+      URL.revokeObjectURL(downloadUrl)
+      setDownloadUrl('')
+    }
+
+    setLoadingVersion(versionId)
     try {
-      const response = await screenAPI.getByVersion(packageName, screenName, version)
-      const payload = response.data?.data || response.data || {}
-      setSelectedVersion(version)
-      setViewingJson(JSON.stringify(payload.definition || payload.ui || payload, null, 2))
+      const response = await screenAPI.getByVersion(packageName, screenName, versionId)
+      const blob = new Blob([response.data], { type: 'application/vnd.ketoy.ktw' })
+      setDownloadUrl(URL.createObjectURL(blob))
     } catch (err) {
       console.error('Failed to fetch version:', err)
-      alert('Failed to load version content')
+      const status = err?.response?.status
+      if (status === 404) {
+        setFetchError('Version history is not available in this environment.')
+      } else {
+        setFetchError(mapApiErrorMessage(err, 'Failed to load version history. Please try again.'))
+      }
     } finally {
       setLoadingVersion(null)
     }
   }
 
-  const handleLoadVersion = () => {
-    if (viewingJson && onLoadVersion) {
-      onLoadVersion(viewingJson)
-      onClose()
-    }
+  const handleClose = () => {
+    setFetchError(null)
+    setSuccessMessage('')
+    setPendingRollbackVersion('')
+    onClose()
   }
 
-  const handleRollback = async (version) => {
-    if (!confirm(`Rollback to version ${version}? This will create a new version with the content from ${version}.`)) {
-      return
-    }
+  const handleRollback = async () => {
+    if (!pendingRollbackVersion) return
 
     setRolling(true)
+    setFetchError(null)
+
     try {
-      const response = await screenAPI.rollback(packageName, screenName, version)
-      alert(response.data?.data?.message || response.data?.message || 'Rollback successful!')
-      fetchVersions()
+      await screenAPI.rollback(packageName, screenName, pendingRollbackVersion)
+      setSuccessMessage('Rollback successful. The screen now serves the selected version.')
+      await fetchVersions()
       setSelectedVersion(null)
-      setViewingJson(null)
+      setPendingRollbackVersion('')
       if (onLoadVersion) {
-        // Reload the current screen to show rolled back content
-        window.location.reload()
+        onLoadVersion()
       }
     } catch (err) {
       console.error('Rollback failed:', err)
-      alert(err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Failed to rollback version')
+      const status = err?.response?.status
+      if (status === 404) {
+        setFetchError('Version history is not available in this environment.')
+      } else {
+        setFetchError(mapApiErrorMessage(err, 'Failed to roll back the selected version.'))
+      }
     } finally {
       setRolling(false)
     }
   }
 
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  }
+  const handleDownload = () => {
+    if (!downloadUrl || !selectedVersion) return
 
-  const formatFileSize = (bytes) => {
-    if (!bytes) return 'N/A'
-    if (bytes < 1024) return bytes + ' B'
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = `${screenName}-${selectedVersion}.ktw`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
   }
 
   if (!isOpen) return null
@@ -97,14 +176,13 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-[#1a2332] rounded-lg border border-gray-800 w-full max-w-5xl max-h-[90vh] flex flex-col">
-        {/* Header */}
         <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-white">Version History</h2>
             <p className="text-sm text-gray-400 mt-1">{screenName}</p>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-2 text-gray-400 hover:text-white hover:bg-[#0f1c2e] rounded-lg transition-colors"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -113,97 +191,146 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-hidden flex">
-          {/* Version List */}
-          <div className="w-80 border-r border-gray-800 overflow-y-auto">
-            {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-              </div>
-            ) : versions.length === 0 ? (
-              <div className="text-center py-12 px-4">
-                <p className="text-gray-400">No version history available</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-gray-800">
-                {versions.map((v) => (
-                  <div
-                    key={v.version}
-                    className={`p-4 cursor-pointer transition-colors ${
-                      selectedVersion === v.version
-                        ? 'bg-blue-500/10 border-l-4 border-blue-500'
-                        : 'hover:bg-[#0f1c2e]'
-                    }`}
-                    onClick={() => handleViewVersion(v.version)}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-sm text-blue-400">v{v.version}</span>
-                        {v.isCurrent && (
-                          <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded-full">
-                            Current
-                          </span>
-                        )}
-                      </div>
-                      {loadingVersion === v.version && (
-                        <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-400 mb-1">{formatDate(v.createdAt)}</p>
-                    <p className="text-xs text-gray-500">{formatFileSize(v.fileSize)}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+        <div className="flex-1 overflow-hidden p-4">
+          {successMessage && !fetchError && (
+            <div className="mb-3 rounded-lg border border-green-500/30 bg-green-500/10 p-3 text-[13px] text-green-300">
+              {successMessage}
+            </div>
+          )}
 
-          {/* Version Content */}
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {selectedVersion ? (
-              <>
-                <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-semibold text-white">Version {selectedVersion}</h3>
-                    <p className="text-sm text-gray-400 mt-1">JSON Content Preview</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleLoadVersion}
-                      className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-colors"
-                    >
-                      Load in Editor
-                    </button>
-                    {!versions.find(v => v.version === selectedVersion)?.isCurrent && (
-                      <button
-                        onClick={() => handleRollback(selectedVersion)}
-                        disabled={rolling}
-                        className="px-4 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 border border-yellow-500/50 text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
-                      >
-                        {rolling ? 'Rolling back...' : 'Rollback'}
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="flex-1 overflow-auto p-6 bg-[#0f1c2e]">
-                  <pre className="text-gray-300 text-sm font-mono whitespace-pre-wrap break-words">
-                    {viewingJson || 'Loading...'}
-                  </pre>
-                </div>
-              </>
-            ) : (
-              <div className="flex-1 flex items-center justify-center">
-                <div className="text-center text-gray-500">
-                  <svg className="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <p>Select a version to view details</p>
-                </div>
+          {fetchError ? (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-red-300 text-[13px]">
+              <div className="flex items-center justify-between gap-3">
+                <p>{fetchError}</p>
+                <button
+                  type="button"
+                  onClick={() => setFetchError(null)}
+                  className="px-2 py-1 rounded-md border border-red-400/40 bg-red-500/10 hover:bg-red-500/20 text-red-200 text-xs"
+                >
+                  Dismiss
+                </button>
               </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="h-full overflow-hidden flex">
+              <div className="w-80 border-r border-gray-800 overflow-y-auto">
+                {loading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                  </div>
+                ) : versions.length === 0 ? (
+                  <div className="text-center py-12 px-4">
+                    <p className="text-gray-400">No KTW version history available</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-800">
+                    {versions.map((version) => (
+                      <div
+                        key={version.versionId}
+                        className={`p-4 cursor-pointer transition-colors ${
+                          selectedVersion === version.versionId
+                            ? 'bg-blue-500/10 border-l-4 border-blue-500 pl-3'
+                            : 'hover:bg-[#0f1c2e]'
+                        }`}
+                        onClick={() => handleViewVersion(version.versionId)}
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-sm text-blue-400" title={version.versionId}>{truncateId(version.versionId, 8, 6)}</span>
+                            {version.isLatest && (
+                              <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded-full">
+                                Current
+                              </span>
+                            )}
+                          </div>
+                          {loadingVersion === version.versionId && (
+                            <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-400 mb-1">{formatRelativeTime(version.lastModified)}</p>
+                        <p className="text-xs text-gray-500">{formatFileSize(version.sizeBytes)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {selectedVersion ? (
+                  <>
+                    <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-semibold text-white">Version {selectedVersion}</h3>
+                        <p className="text-sm text-gray-400 mt-1">KTW binary snapshot</p>
+                      </div>
+                      <div className="flex gap-2">
+                        {!versions.find((version) => version.versionId === selectedVersion)?.isLatest && (
+                          <button
+                            onClick={() => setPendingRollbackVersion(selectedVersion)}
+                            disabled={rolling}
+                            className="px-4 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 border border-yellow-500/50 text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            {rolling ? 'Rolling back...' : 'Rollback'}
+                          </button>
+                        )}
+                        <button
+                          onClick={handleDownload}
+                          disabled={!downloadUrl}
+                          className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          Download KTW
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex-1 overflow-auto p-6 bg-[#0f1c2e]">
+                      <p className="text-gray-300 text-sm">KTW version files are binary and can only be downloaded from the console.</p>
+                      <p className="mt-2 text-xs text-gray-500 font-mono break-all">{downloadUrl ? 'Binary loaded for download.' : 'Loading binary...'}</p>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex-1 flex items-center justify-center">
+                    <div className="text-center text-gray-500">
+                      <svg className="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <p>Select a version to view details</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {pendingRollbackVersion && (
+        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4">
+          <div className="bg-[#111b2b] rounded-2xl max-w-md w-full p-6 border border-amber-500/40 shadow-2xl shadow-black/40">
+            <h3 className="text-lg font-bold text-white mb-3">Rollback this version?</h3>
+            <p className="text-sm text-gray-300 mb-5">
+              Rollback to <span className="font-mono text-white">{truncateId(pendingRollbackVersion, 10, 8)}</span>? This will create a new latest version with this content.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingRollbackVersion('')}
+                disabled={rolling}
+                className="flex-1 px-4 py-2 bg-[#0f1c2e] hover:bg-[#152235] text-white rounded-lg transition-colors disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleRollback}
+                disabled={rolling}
+                className="flex-1 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-medium rounded-lg transition-colors disabled:opacity-60"
+              >
+                {rolling ? 'Rolling back...' : 'Confirm Rollback'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

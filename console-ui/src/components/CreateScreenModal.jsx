@@ -1,61 +1,59 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useScreenStore } from '../store/screenStore'
 import { screenAPI } from '../services/api'
-
-const defaultJsonContent = {
-  type: "scaffold",
-  body: {
-    type: "center",
-    child: {
-      type: "text",
-      data: "Hello World"
-    }
-  }
-}
+import { mapApiErrorMessage, prepareKtwUploadBinary, validateKtwFile } from '../services/ktwUtils'
 
 export default function CreateScreenModal({ isOpen, onClose, packageName, onSuccess }) {
   const { addScreen } = useScreenStore()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [formData, setFormData] = useState({
-    screenName: '',
-    displayName: '',
-    description: '',
-    jsonContent: JSON.stringify(defaultJsonContent, null, 2)
-  })
+  const [screenName, setScreenName] = useState('')
+  const [ktwFile, setKtwFile] = useState(null)
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value })
-  }
+  useEffect(() => {
+    if (!isOpen) {
+      setLoading(false)
+      setError(null)
+      setScreenName('')
+      setKtwFile(null)
+    }
+  }, [isOpen])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
     setError(null)
 
+    const normalizedScreenName = screenName.trim()
+    if (!normalizedScreenName) {
+      setError('Screen name is required.')
+      setLoading(false)
+      return
+    }
+
+    if (!ktwFile) {
+      setError('Select a .ktw file to upload.')
+      setLoading(false)
+      return
+    }
+
     try {
-      // Validate JSON
-      JSON.parse(formData.jsonContent)
-      
-      const response = await screenAPI.upload(packageName, formData.screenName, {
-        displayName: formData.displayName,
-        description: formData.description,
-        jsonContent: formData.jsonContent // Send as string
-      })
-      
-      const newScreen = response.data.data || response.data
+      const fileValidationError = await validateKtwFile(ktwFile)
+      if (fileValidationError) {
+        throw new Error(fileValidationError)
+      }
+
+      const { binary } = await prepareKtwUploadBinary(ktwFile)
+      const response = await screenAPI.uploadKtw(packageName, normalizedScreenName, binary)
+      const newScreen = response.data?.data || response.data
       addScreen(newScreen)
-      
+
       if (onSuccess) {
         onSuccess()
       }
       onClose()
     } catch (err) {
-      if (err instanceof SyntaxError) {
-        setError('Invalid JSON format. Please check your JSON.')
-      } else {
-        setError(err?.response?.data?.message || err?.message || 'Failed to create screen')
-      }
+      setError(mapApiErrorMessage(err, 'Failed to upload screen'))
     } finally {
       setLoading(false)
     }
@@ -66,8 +64,8 @@ export default function CreateScreenModal({ isOpen, onClose, packageName, onSucc
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
       <div className="bg-[#1a2332] rounded-lg max-w-2xl w-full p-6 border border-gray-800 max-h-[90vh] overflow-y-auto">
-        <h2 className="text-2xl font-bold text-white mb-4">Create New Screen</h2>
-        
+        <h2 className="text-2xl font-bold text-white mb-4">Upload KTW Screen</h2>
+
         {error && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/50 rounded-lg text-red-400 text-sm">
             {error}
@@ -81,57 +79,45 @@ export default function CreateScreenModal({ isOpen, onClose, packageName, onSucc
             </label>
             <input
               type="text"
-              name="screenName"
-              value={formData.screenName}
-              onChange={handleChange}
+              value={screenName}
+              onChange={(e) => setScreenName(e.target.value)}
               placeholder="home_screen"
               required
-              pattern="^[a-zA-Z0-9_-]+$"
+              pattern="^[a-zA-Z0-9._-]+$"
               className="w-full px-4 py-2 bg-[#0f1c2e] border border-gray-700 rounded-lg focus:outline-none focus:border-blue-500 text-white select-text"
             />
-            <p className="mt-1 text-xs text-gray-500">Only letters, numbers, hyphens, and underscores</p>
+            <p className="mt-1 text-xs text-gray-500">Use letters, numbers, dots, hyphens, and underscores only.</p>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
-              Display Name
+              KTW File *
             </label>
-            <input
-              type="text"
-              name="displayName"
-              value={formData.displayName}
-              onChange={handleChange}
-              placeholder="Home Screen"
-              className="w-full px-4 py-2 bg-[#0f1c2e] border border-gray-700 rounded-lg focus:outline-none focus:border-blue-500 text-white select-text"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Description
-            </label>
-            <textarea
-              name="description"
-              value={formData.description}
-              onChange={handleChange}
-              placeholder="Brief description of the screen"
-              rows={2}
-              className="w-full px-4 py-2 bg-[#0f1c2e] border border-gray-700 rounded-lg focus:outline-none focus:border-blue-500 text-white resize-none select-text"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              JSON Content - Drop your content here*
-            </label>
-            <textarea
-              name="jsonContent"
-              value={formData.jsonContent}
-              onChange={handleChange}
-              rows={12}
-              required
-              className="w-full px-4 py-2 bg-[#0f1c2e] border border-gray-700 rounded-lg focus:outline-none focus:border-blue-500 text-white font-mono text-sm resize-none select-text"
-            />
+            <div className="rounded-lg border border-white/10 bg-[#0f1c2e] px-3 py-2.5">
+              <div className="flex items-center gap-3">
+                <label
+                  htmlFor="create-screen-ktw-file"
+                  className="inline-flex items-center px-3 py-1.5 rounded-md bg-[#1A73E8] hover:bg-[#1765cc] text-white text-sm font-medium cursor-pointer transition-colors"
+                >
+                  Choose KTW File
+                </label>
+                <span className="text-xs text-gray-400 truncate">
+                  {ktwFile ? ktwFile.name : 'No file selected'}
+                </span>
+              </div>
+              <input
+                id="create-screen-ktw-file"
+                type="file"
+                onChange={(e) => setKtwFile(e.target.files?.[0] || null)}
+                className="sr-only"
+              />
+            </div>
+            <p className="mt-2 text-xs text-gray-500">Use a valid .ktw export file under 1 MB.</p>
+            {ktwFile && (
+              <p className="mt-2 text-xs text-gray-400 font-mono">
+                Selected: {ktwFile.name} ({ktwFile.size.toLocaleString()} bytes)
+              </p>
+            )}
           </div>
 
           <div className="flex gap-3 pt-4">
@@ -147,7 +133,7 @@ export default function CreateScreenModal({ isOpen, onClose, packageName, onSucc
               disabled={loading}
               className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg transition-colors disabled:opacity-50"
             >
-              {loading ? 'Creating...' : 'Create'}
+              {loading ? 'Uploading...' : 'Upload'}
             </button>
           </div>
         </form>

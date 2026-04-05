@@ -6,13 +6,14 @@ export default function CreateAppModal({ isOpen, onClose, onSuccess }) {
   const { addApp } = useAppStore()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [copyMessage, setCopyMessage] = useState('')
   const [showApiKey, setShowApiKey] = useState(false)
   const [apiKey, setApiKey] = useState(null)
   const [formData, setFormData] = useState({
     packageName: '',
     appName: '',
     description: '',
-    platform: 'both'
+    platform: 'android'
   })
 
   const handleChange = (e) => {
@@ -51,6 +52,7 @@ export default function CreateAppModal({ isOpen, onClose, onSuccess }) {
     if (showApiKey && onSuccess) {
       onSuccess()
     }
+    setCopyMessage('')
     onClose()
   }
 
@@ -178,9 +180,10 @@ export default function CreateAppModal({ isOpen, onClose, onSuccess }) {
                     {apiKey}
                   </code>
                   <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(apiKey)
-                      alert('API Key copied to clipboard!')
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(apiKey)
+                      setCopyMessage('API key copied to clipboard.')
+                      window.setTimeout(() => setCopyMessage(''), 1800)
                     }}
                     className="p-2 bg-[#1a2332] hover:bg-[#152235] rounded-lg text-gray-400 hover:text-white transition-colors"
                     title="Copy to clipboard"
@@ -190,6 +193,9 @@ export default function CreateAppModal({ isOpen, onClose, onSuccess }) {
                     </svg>
                   </button>
                 </div>
+                {copyMessage && (
+                  <p className="mt-2 text-xs text-emerald-300">{copyMessage}</p>
+                )}
               </div>
             </div>
 

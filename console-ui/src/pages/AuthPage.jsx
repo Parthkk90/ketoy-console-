@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 
 const COGNITO_REGION = import.meta.env.VITE_COGNITO_REGION || 'ap-south-1'
-const COGNITO_CLIENT_ID = import.meta.env.VITE_COGNITO_CLIENT_ID
+const COGNITO_CLIENT_ID = import.meta.env.VITE_COGNITO_CLIENT_ID || '77c5oeofluou2n5htlk6gec0p7'
 const COGNITO_ENDPOINT = `https://cognito-idp.${COGNITO_REGION}.amazonaws.com/`
 
 const decodeJwtPayload = (token) => {
@@ -27,14 +27,24 @@ export default function AuthPage() {
   }))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [authMode, setAuthMode] = useState('signin')
   const [isNewPasswordRequired, setIsNewPasswordRequired] = useState(false)
   const [challengeSession, setChallengeSession] = useState('')
   const [refreshTokenInMemory, setRefreshTokenInMemory] = useState(null)
   const [rememberMe, setRememberMe] = useState(true)
+  const [signupStep, setSignupStep] = useState('signup')
+  const [signupMessage, setSignupMessage] = useState('')
+  const [slideDirection, setSlideDirection] = useState('right')
+  const [showSignupPassword, setShowSignupPassword] = useState(false)
+  const [signupEmail, setSignupEmail] = useState('')
   const [formData, setFormData] = useState({
     username: '',
     password: '',
     newPassword: ''
+  })
+  const [signupData, setSignupData] = useState({
+    password: '',
+    confirmationCode: ''
   })
 
   useEffect(() => {
@@ -47,151 +57,95 @@ export default function AuthPage() {
     const canvas = canvasRef.current
     if (!canvas) return
 
-    const ctx = canvas.getContext('2d', { alpha: true })
+    const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const state = {
-      dots: [],
-      width: 0,
-      height: 0,
-      gap: 20,
-      dotSize: 2,
-      proximity: 120,
-      cursor: { x: -9999, y: -9999 },
-      pushEvents: []
-    }
+    let animationId
+    let time = 0
 
-    const hexToRgb = (hex) => {
-      const cleaned = hex.replace('#', '')
-      const value = parseInt(cleaned, 16)
-      return {
-        r: (value >> 16) & 255,
-        g: (value >> 8) & 255,
-        b: value & 255
+    const resize = () => {
+      canvas.width = window.innerWidth
+      canvas.height = window.innerHeight
+    }
+    resize()
+    window.addEventListener('resize', resize)
+
+    const draw = () => {
+      time += 0.003
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+      const spacing = 48
+      const cols = Math.ceil(canvas.width / spacing) + 1
+      const rows = Math.ceil(canvas.height / spacing) + 1
+
+      // Grid lines
+      ctx.strokeStyle = 'hsla(225, 10%, 20%, 0.3)'
+      ctx.lineWidth = 0.5
+      for (let i = 0; i < cols; i++) {
+        ctx.beginPath()
+        ctx.moveTo(i * spacing, 0)
+        ctx.lineTo(i * spacing, canvas.height)
+        ctx.stroke()
       }
-    }
+      for (let j = 0; j < rows; j++) {
+        ctx.beginPath()
+        ctx.moveTo(0, j * spacing)
+        ctx.lineTo(canvas.width, j * spacing)
+        ctx.stroke()
+      }
 
-    const blend = (base, active, t) => ({
-      r: Math.round(base.r + (active.r - base.r) * t),
-      g: Math.round(base.g + (active.g - base.g) * t),
-      b: Math.round(base.b + (active.b - base.b) * t)
-    })
+      // Animated glow dots at intersections
+      for (let i = 0; i < cols; i++) {
+        for (let j = 0; j < rows; j++) {
+          const x = i * spacing
+          const y = j * spacing
+          const wave = Math.sin(time * 2 + i * 0.3 + j * 0.5) * 0.5 + 0.5
+          const dist = Math.sqrt(
+            Math.pow((x - canvas.width / 2) / canvas.width, 2) +
+            Math.pow((y - canvas.height / 2) / canvas.height, 2)
+          )
+          const falloff = Math.max(0, 1 - dist * 2.2)
+          const alpha = wave * falloff * 1.2
 
-    const baseColor = hexToRgb('#1a1a2e')
-    const activeColor = hexToRgb('#1A73E8')
+          if (alpha > 0.05) {
+            const radius = 1.8 + wave * falloff * 2.2
+            const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius * 5)
+            gradient.addColorStop(0, `hsla(199, 89%, 65%, ${alpha})`)
+            gradient.addColorStop(0.5, `hsla(199, 89%, 48%, ${alpha * 0.5})`)
+            gradient.addColorStop(1, `hsla(199, 89%, 48%, 0)`)
+            ctx.fillStyle = gradient
+            ctx.beginPath()
+            ctx.arc(x, y, radius * 5, 0, Math.PI * 2)
+            ctx.fill()
 
-    const buildGrid = () => {
-      const dpr = window.devicePixelRatio || 1
-      state.width = window.innerWidth
-      state.height = window.innerHeight
-
-      canvas.width = Math.floor(state.width * dpr)
-      canvas.height = Math.floor(state.height * dpr)
-      canvas.style.width = `${state.width}px`
-      canvas.style.height = `${state.height}px`
-
-      ctx.setTransform(1, 0, 0, 1, 0, 0)
-      ctx.scale(dpr, dpr)
-
-      state.dots = []
-      for (let y = state.gap / 2; y < state.height; y += state.gap) {
-        for (let x = state.gap / 2; x < state.width; x += state.gap) {
-          state.dots.push({
-            x,
-            y,
-            offsetX: 0,
-            offsetY: 0
-          })
+            ctx.fillStyle = `hsla(199, 89%, 75%, ${Math.min(alpha * 1.5, 1)})`
+            ctx.beginPath()
+            ctx.arc(x, y, radius, 0, Math.PI * 2)
+            ctx.fill()
+          }
         }
       }
-    }
 
-    const easeOutQuad = (t) => 1 - (1 - t) * (1 - t)
-
-    let rafId = 0
-    const render = () => {
-      ctx.clearRect(0, 0, state.width, state.height)
-
-      const now = performance.now()
-      state.pushEvents = state.pushEvents.filter((event) => now - event.start < 300)
-
-      for (const dot of state.dots) {
-        let pushX = 0
-        let pushY = 0
-
-        for (const event of state.pushEvents) {
-          const elapsed = now - event.start
-          const progress = Math.min(elapsed / 300, 1)
-          const distX = dot.x - event.x
-          const distY = dot.y - event.y
-          const dist = Math.hypot(distX, distY)
-          if (dist > event.radius || dist === 0) continue
-
-          const dirX = distX / dist
-          const dirY = distY / dist
-          const strength = (1 - dist / event.radius) * event.force
-          const pulse = progress < 0.5
-            ? easeOutQuad(progress * 2)
-            : 1 - easeOutQuad((progress - 0.5) * 2)
-
-          pushX += dirX * strength * pulse
-          pushY += dirY * strength * pulse
-        }
-
-        dot.offsetX += (pushX - dot.offsetX) * 0.2
-        dot.offsetY += (pushY - dot.offsetY) * 0.2
-
-        const drawX = dot.x + dot.offsetX
-        const drawY = dot.y + dot.offsetY
-        const cursorDist = Math.hypot(state.cursor.x - drawX, state.cursor.y - drawY)
-        const t = Math.max(0, 1 - cursorDist / state.proximity)
-        const c = blend(baseColor, activeColor, t)
-
-        ctx.fillStyle = `rgb(${c.r}, ${c.g}, ${c.b})`
-        ctx.fillRect(drawX - state.dotSize / 2, drawY - state.dotSize / 2, state.dotSize, state.dotSize)
+      // Floating gradient orbs
+      for (let k = 0; k < 3; k++) {
+        const ox = canvas.width * (0.3 + 0.4 * Math.sin(time * 0.5 + k * 2.1))
+        const oy = canvas.height * (0.3 + 0.4 * Math.cos(time * 0.4 + k * 1.7))
+        const orbGrad = ctx.createRadialGradient(ox, oy, 0, ox, oy, 180)
+        orbGrad.addColorStop(0, `hsla(${199 + k * 18}, 80%, 50%, 0.04)`)
+        orbGrad.addColorStop(1, `hsla(${199 + k * 18}, 80%, 50%, 0)`)
+        ctx.fillStyle = orbGrad
+        ctx.beginPath()
+        ctx.arc(ox, oy, 180, 0, Math.PI * 2)
+        ctx.fill()
       }
 
-      rafId = window.requestAnimationFrame(render)
+      animationId = requestAnimationFrame(draw)
     }
-
-    const onMouseMove = (event) => {
-      state.cursor.x = event.clientX
-      state.cursor.y = event.clientY
-    }
-
-    const onMouseLeave = () => {
-      state.cursor.x = -9999
-      state.cursor.y = -9999
-    }
-
-    const onClick = (event) => {
-      state.pushEvents.push({
-        x: event.clientX,
-        y: event.clientY,
-        radius: 200,
-        force: 14,
-        start: performance.now()
-      })
-    }
-
-    const onResize = () => {
-      buildGrid()
-    }
-
-    buildGrid()
-    rafId = window.requestAnimationFrame(render)
-
-    window.addEventListener('mousemove', onMouseMove)
-    window.addEventListener('mouseleave', onMouseLeave)
-    window.addEventListener('click', onClick)
-    window.addEventListener('resize', onResize)
+    draw()
 
     return () => {
-      window.cancelAnimationFrame(rafId)
-      window.removeEventListener('mousemove', onMouseMove)
-      window.removeEventListener('mouseleave', onMouseLeave)
-      window.removeEventListener('click', onClick)
-      window.removeEventListener('resize', onResize)
+      cancelAnimationFrame(animationId)
+      window.removeEventListener('resize', resize)
     }
   }, [])
 
@@ -281,6 +235,116 @@ export default function AuthPage() {
     }
   }
 
+  const callCognito = async (target, payload) => {
+    const response = await fetch(COGNITO_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-amz-json-1.1',
+        'X-Amz-Target': target
+      },
+      body: JSON.stringify(payload)
+    })
+
+    const body = await response.json()
+    if (!response.ok) {
+      throw new Error(getCognitoErrorMessage(body))
+    }
+    return body
+  }
+
+  const handleSignUp = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+    setSignupMessage('')
+
+    if (!COGNITO_CLIENT_ID) {
+      setError('Missing VITE_COGNITO_CLIENT_ID in environment configuration.')
+      setLoading(false)
+      return
+    }
+
+    try {
+      const email = signupEmail.trim()
+      await callCognito('AWSCognitoIdentityProviderService.SignUp', {
+        ClientId: COGNITO_CLIENT_ID,
+        Username: email,
+        Password: signupData.password
+      })
+
+      setSlideDirection('right')
+      setSignupStep('verify')
+      setSignupMessage('Check your email for the 6-digit verification code.')
+    } catch (err) {
+      setError(err?.message || 'Signup failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleConfirmSignUp = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+    setSignupMessage('')
+
+    if (!COGNITO_CLIENT_ID) {
+      setError('Missing VITE_COGNITO_CLIENT_ID in environment configuration.')
+      setLoading(false)
+      return
+    }
+
+    try {
+      const email = signupEmail.trim()
+      await callCognito('AWSCognitoIdentityProviderService.ConfirmSignUp', {
+        ClientId: COGNITO_CLIENT_ID,
+        Username: email,
+        ConfirmationCode: signupData.confirmationCode.trim()
+      })
+
+      const authBody = await callCognito('AWSCognitoIdentityProviderService.InitiateAuth', {
+        AuthFlow: 'USER_PASSWORD_AUTH',
+        ClientId: COGNITO_CLIENT_ID,
+        AuthParameters: {
+          USERNAME: email,
+          PASSWORD: signupData.password
+        }
+      })
+
+      if (!authBody.AuthenticationResult?.IdToken) {
+        throw new Error('Signup confirmed, but auto login failed. Please sign in manually.')
+      }
+
+      finalizeSession({
+        idToken: authBody.AuthenticationResult.IdToken,
+        refreshToken: authBody.AuthenticationResult.RefreshToken,
+        username: email
+      })
+    } catch (err) {
+      setError(err?.message || 'Verification failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleResendCode = async () => {
+    setLoading(true)
+    setError(null)
+    setSignupMessage('')
+
+    try {
+      await callCognito('AWSCognitoIdentityProviderService.ResendConfirmationCode', {
+        ClientId: COGNITO_CLIENT_ID,
+        Username: signupEmail.trim()
+      })
+      setSignupMessage('Verification code sent. Check your email.')
+    } catch (err) {
+      setError(err?.message || 'Failed to resend verification code')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleNewPasswordSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
@@ -336,6 +400,23 @@ export default function AuthPage() {
     setFormData({ ...formData, [e.target.name]: e.target.value })
   }
 
+  const handleSignupChange = (e) => {
+    setSignupData({ ...signupData, [e.target.name]: e.target.value })
+  }
+
+  const switchAuthMode = (mode) => {
+    setSlideDirection(mode === 'signup' ? 'right' : 'left')
+    setAuthMode(mode)
+    setError(null)
+    setSignupMessage('')
+    if (mode === 'signup') {
+      setIsNewPasswordRequired(false)
+      setChallengeSession('')
+      setSignupStep('signup')
+      setSignupData((prev) => ({ ...prev, confirmationCode: '' }))
+    }
+  }
+
   return (
     <>
       <style>{`
@@ -351,6 +432,14 @@ export default function AuthPage() {
           height: 100%;
           z-index: 0;
           pointer-events: none;
+        }
+
+        .auth-vignette {
+          position: fixed;
+          inset: 0;
+          z-index: 1;
+          pointer-events: none;
+          background: radial-gradient(ellipse at center, transparent 20%, #020817 75%);
         }
 
         .auth-glass-card {
@@ -425,10 +514,33 @@ export default function AuthPage() {
           transform: none;
           filter: none;
         }
+
+        @keyframes slideInFromRight {
+          from { opacity: 0; transform: translateX(18px); }
+          to   { opacity: 1; transform: translateX(0); }
+        }
+
+        @keyframes slideInFromLeft {
+          from { opacity: 0; transform: translateX(-18px); }
+          to   { opacity: 1; transform: translateX(0); }
+        }
+
+        .slide-from-right {
+          animation: slideInFromRight 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        .slide-from-left {
+          animation: slideInFromLeft 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        .auth-form-area {
+          overflow: hidden;
+        }
       `}</style>
 
       <div className="auth-page-bg min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
         <canvas ref={canvasRef} className="dot-grid-canvas" />
+        <div className="auth-vignette" />
 
         <div className="w-full max-w-[500px] relative z-10">
           <div className="auth-glass-card">
@@ -446,9 +558,43 @@ export default function AuthPage() {
               <div className="inline-flex items-center justify-center mx-auto mb-4 h-10">
                 <img src="/T_ketoy_logo.png" alt="Ketoy" height="44" className="h-11 w-11 object-contain" />
               </div>
-              <h1 className="text-3xl font-semibold text-white">Welcome back</h1>
-              <p className="text-white/65 text-sm mt-2">Sign in to Ketoy Console</p>
+              <div
+                key={authMode}
+                className={`slide-from-${slideDirection}`}
+              >
+                <h1 className="text-3xl font-semibold text-white">{authMode === 'signin' ? 'Welcome back' : 'Create your account'}</h1>
+                <p className="text-white/65 text-sm mt-2">
+                  {authMode === 'signin' ? 'Sign in to Ketoy Console' : 'Sign up with your email and verify your account'}
+                </p>
+              </div>
             </div>
+
+          <div className="mb-4 p-1 rounded-xl bg-white/5 border border-white/10 grid grid-cols-2 gap-1">
+            <button
+              type="button"
+              onClick={() => switchAuthMode('signin')}
+              className={`px-3 py-2 text-sm rounded-lg transition-colors ${
+                authMode === 'signin' ? 'bg-blue-500/30 text-white' : 'text-white/70 hover:text-white hover:bg-white/10'
+              }`}
+            >
+              Sign in
+            </button>
+            <button
+              type="button"
+              onClick={() => switchAuthMode('signup')}
+              className={`px-3 py-2 text-sm rounded-lg transition-colors ${
+                authMode === 'signup' ? 'bg-blue-500/30 text-white' : 'text-white/70 hover:text-white hover:bg-white/10'
+              }`}
+            >
+              Create account
+            </button>
+          </div>
+
+          <div className="auth-form-area">
+          <div
+            key={`${authMode}-${signupStep}-${isNewPasswordRequired}`}
+            className={`slide-from-${slideDirection}`}
+          >
 
           {loading && (
             <div className="mb-3 p-2 bg-blue-500/10 border border-blue-500/40 rounded-lg text-blue-300 text-xs">
@@ -462,7 +608,90 @@ export default function AuthPage() {
             </div>
           )}
 
-          {!isNewPasswordRequired ? (
+          {signupMessage && authMode === 'signup' && (
+            <div className="mb-3 p-2 bg-green-500/10 border border-green-500/50 rounded-lg text-green-300 text-xs">
+              {signupMessage}
+            </div>
+          )}
+
+          {authMode === 'signup' ? (
+            signupStep === 'signup' ? (
+              <form onSubmit={handleSignUp} className="space-y-2.5">
+                <p className="text-xs text-white/70">Email</p>
+                <input
+                  type="email"
+                  placeholder="you@company.com"
+                  autoComplete="email"
+                  value={signupEmail}
+                  onChange={(e) => setSignupEmail(e.target.value)}
+                  required
+                  className="auth-input text-sm"
+                />
+
+                <div className="relative">
+                  <input
+                    type={showSignupPassword ? 'text' : 'password'}
+                    name="password"
+                    placeholder="Create password"
+                    value={signupData.password}
+                    onChange={handleSignupChange}
+                    required
+                    className="auth-input text-sm pr-24"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSignupPassword((prev) => !prev)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-xs rounded-md text-white/70 hover:text-white hover:bg-white/10"
+                  >
+                    {showSignupPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="auth-submit text-sm"
+                >
+                  {loading ? 'Creating...' : 'Create account'}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleConfirmSignUp} className="space-y-2.5">
+                <p className="text-xs text-white/70">Verification code</p>
+                <input
+                  type="text"
+                  name="confirmationCode"
+                  placeholder="6-digit code"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={signupData.confirmationCode}
+                  onChange={handleSignupChange}
+                  required
+                  className="auth-input text-sm"
+                />
+
+                <div className="text-xs text-white/70">
+                  Didn&apos;t receive the code?{' '}
+                  <button
+                    type="button"
+                    onClick={handleResendCode}
+                    disabled={loading}
+                    className="text-blue-300 hover:text-blue-200 disabled:opacity-60"
+                  >
+                    Resend code
+                  </button>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="auth-submit text-sm"
+                >
+                  {loading ? 'Verifying...' : 'Verify & sign in'}
+                </button>
+              </form>
+            )
+          ) : !isNewPasswordRequired ? (
             <form onSubmit={handlePasswordSignIn} className="space-y-2.5">
               <p className="text-xs text-white/70">Username</p>
               <input
@@ -534,7 +763,9 @@ export default function AuthPage() {
               </button>
             </form>
           )}
-          </div>
+          </div>{/* slide wrapper */}
+          </div>{/* auth-form-area */}
+          </div>{/* auth-glass-card */}
         </div>
       </div>
     </>
