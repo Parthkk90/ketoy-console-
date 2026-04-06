@@ -84,7 +84,7 @@ export default function BundleSnapshotModal({ isOpen, onClose, bundleId, snapsho
     }
   }
 
-  const handlePreview = async (screenId, versionId) => {
+  const handlePreview = async (screenId, version) => {
     setPreviewError('')
     setPreviewScreenId(screenId)
     setPreviewJson('')
@@ -103,7 +103,7 @@ export default function BundleSnapshotModal({ isOpen, onClose, bundleId, snapsho
     setPreviewLoadingId(screenId)
 
     try {
-      const response = await screenAPI.getByVersion(bundleId, screenId, versionId, snapshotType)
+      const response = await screenAPI.getByVersion(bundleId, screenId, version)
       const payload = response.data?.data || response.data || {}
       setPreviewJson(JSON.stringify(payload.definition || payload.ui || payload, null, 2))
     } catch (err) {
@@ -180,8 +180,12 @@ export default function BundleSnapshotModal({ isOpen, onClose, bundleId, snapsho
               <>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5 text-sm">
                   <div className="rounded-lg bg-[#0f1c2e] border border-white/10 p-3">
-                    <p className="text-gray-400 text-xs">Version ID</p>
+                    <p className="text-gray-400 text-xs">Snapshot ID</p>
                     <p className="text-white font-mono mt-1">{snapshot.snapshotId}</p>
+                  </div>
+                  <div className="rounded-lg bg-[#0f1c2e] border border-white/10 p-3">
+                    <p className="text-gray-400 text-xs">Bundle Version</p>
+                    <p className="text-blue-300 font-mono mt-1">{snapshot.bundleVersion || '—'}</p>
                   </div>
                   <div className="rounded-lg bg-[#0f1c2e] border border-white/10 p-3">
                     <p className="text-gray-400 text-xs">Type</p>
@@ -208,7 +212,7 @@ export default function BundleSnapshotModal({ isOpen, onClose, bundleId, snapsho
                     <thead className="bg-[#0f1c2e] text-gray-300">
                       <tr>
                         <th className="text-left px-3 py-2 font-medium">Screen ID</th>
-                        <th className="text-left px-3 py-2 font-medium">Version ID</th>
+                        <th className="text-left px-3 py-2 font-medium">Version</th>
                         <th className="text-left px-3 py-2 font-medium">Size</th>
                         <th className="text-right px-3 py-2 font-medium">Action</th>
                       </tr>
@@ -217,11 +221,11 @@ export default function BundleSnapshotModal({ isOpen, onClose, bundleId, snapsho
                       {rows.map(([screenId, meta]) => (
                         <tr key={screenId} className="bg-[#142033]/60">
                           <td className="px-3 py-2 text-white font-mono">{screenId}</td>
-                          <td className="px-3 py-2 text-gray-300 font-mono">{truncate(meta?.versionId)}</td>
-                          <td className="px-3 py-2 text-gray-300">{formatBytes(meta?.sizeBytes)}</td>
+                          <td className="px-3 py-2 text-gray-300 font-mono">{meta?.version || '-'}</td>
+                          <td className="px-3 py-2 text-gray-300">{formatBytes(meta?.ktwSizeBytes)}</td>
                           <td className="px-3 py-2 text-right">
                             <button
-                              onClick={() => handlePreview(screenId, meta?.versionId)}
+                              onClick={() => handlePreview(screenId, meta?.version)}
                               disabled={previewLoadingId === screenId}
                               className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[#1A73E8] hover:bg-[#1765cc] disabled:opacity-50 text-white transition-colors"
                             >

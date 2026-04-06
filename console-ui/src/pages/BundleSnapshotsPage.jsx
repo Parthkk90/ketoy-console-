@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { bundleAPI } from '../services/api'
-import { formatDateTime, mapApiErrorMessage, truncateId } from '../services/ktwUtils'
+import { formatDateTime, mapApiErrorMessage } from '../services/ktwUtils'
 
 export default function BundleSnapshotsPage() {
   const { packageName } = useParams()
@@ -16,6 +16,7 @@ export default function BundleSnapshotsPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [promoting, setPromoting] = useState(false)
   const [showPromoteConfirm, setShowPromoteConfirm] = useState(false)
+  const [promoteBump, setPromoteBump] = useState('major')
   const [message, setMessage] = useState('')
 
   useEffect(() => {
@@ -72,8 +73,12 @@ export default function BundleSnapshotsPage() {
     setError('')
 
     try {
-      await bundleAPI.promote(packageName, selectedSnapshotId)
-      setMessage('Snapshot promoted successfully.')
+      const response = await bundleAPI.promote(packageName, selectedSnapshotId, promoteBump)
+      const data = response.data?.data || {}
+      const bundleVersion = data.bundleVersion
+      const screenResults = Array.isArray(data.results) ? data.results.filter((item) => item?.ok).map((item) => `${item.screenId}:${item.version || '-'}`) : []
+      const versionsLine = screenResults.length > 0 ? ` Screens: ${screenResults.join(', ')}` : ''
+      setMessage(bundleVersion ? `Snapshot promoted. Bundle version ${bundleVersion}.${versionsLine}` : 'Snapshot promoted successfully.')
       await fetchDetail(selectedSnapshotId)
       await fetchList()
     } catch (err) {
@@ -119,7 +124,7 @@ export default function BundleSnapshotsPage() {
               <table className="w-full text-sm">
                 <thead className="bg-[#0f1c2e] text-gray-300">
                   <tr>
-                    <th className="text-left px-3 py-2 font-medium">snapshotId</th>
+                    <th className="text-left px-3 py-2 font-medium">bundleVersion</th>
                     <th className="text-left px-3 py-2 font-medium">updatedAt</th>
                     <th className="text-left px-3 py-2 font-medium">screens</th>
                   </tr>
@@ -131,7 +136,7 @@ export default function BundleSnapshotsPage() {
                       onClick={() => setSelectedSnapshotId(snapshot.snapshotId)}
                       className={`cursor-pointer ${selectedSnapshotId === snapshot.snapshotId ? 'bg-blue-500/15' : 'bg-[#111a2a] hover:bg-[#15233a]'}`}
                     >
-                      <td className="px-3 py-2 font-mono text-blue-300">{truncateId(snapshot.snapshotId, 10, 6)}</td>
+                      <td className="px-3 py-2 font-mono text-blue-300">{snapshot.bundleVersion || '—'}</td>
                       <td className="px-3 py-2 text-gray-300">{formatDateTime(snapshot.uploadedAt || snapshot.updatedAt)}</td>
                       <td className="px-3 py-2 text-gray-300">{snapshot.screenCount || 0}</td>
                     </tr>
@@ -184,7 +189,9 @@ export default function BundleSnapshotsPage() {
           ) : (
             <div className="mt-4 space-y-3">
               <div className="text-xs text-gray-400">snapshotId: <span className="text-gray-200 font-mono">{detail.snapshotId}</span></div>
+              <div className="text-xs text-gray-400">bundleVersion: <span className="text-blue-300 font-mono">{detail.bundleVersion || '—'}</span></div>
               <div className="text-xs text-gray-400">uploadedAt: <span className="text-gray-200">{formatDateTime(detail.uploadedAt || detail.updatedAt)}</span></div>
+              <div className="text-xs text-gray-400">uploadedBy: <span className="text-gray-200">{detail.uploadedBy || '-'}</span></div>
               <div className="text-xs text-gray-400">type: <span className="text-gray-200 uppercase">{detail.type || '-'}</span></div>
 
               <div className="overflow-hidden rounded-xl border border-white/10">
@@ -192,7 +199,7 @@ export default function BundleSnapshotsPage() {
                   <thead className="bg-[#0f1c2e] text-gray-300">
                     <tr>
                       <th className="text-left px-3 py-2 font-medium">screenId</th>
-                      <th className="text-left px-3 py-2 font-medium">versionId</th>
+                      <th className="text-left px-3 py-2 font-medium">version</th>
                       <th className="text-left px-3 py-2 font-medium">size</th>
                     </tr>
                   </thead>
@@ -200,8 +207,8 @@ export default function BundleSnapshotsPage() {
                     {manifestRows.map(([screenId, meta]) => (
                       <tr key={screenId} className="bg-[#111a2a]">
                         <td className="px-3 py-2 text-gray-100 font-mono">{screenId}</td>
-                        <td className="px-3 py-2 text-blue-300 font-mono">{truncateId(meta?.versionId || '-', 10, 6)}</td>
-                        <td className="px-3 py-2 text-gray-300">{meta?.ktwSizeBytes ?? meta?.sizeBytes ?? '-'}</td>
+                        <td className="px-3 py-2 text-blue-300 font-mono">{meta?.version || '—'}</td>
+                        <td className="px-3 py-2 text-gray-300">{meta?.ktwSizeBytes ?? '-'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -219,6 +226,18 @@ export default function BundleSnapshotsPage() {
             <p className="text-gray-300 mb-6">
               This will make all screens in the selected snapshot live simultaneously.
             </p>
+            <div className="mb-5">
+              <label className="block text-xs text-gray-400 mb-1">Version bump</label>
+              <select
+                value={promoteBump}
+                onChange={(event) => setPromoteBump(event.target.value)}
+                className="w-full bg-[#0f1c2e] border border-gray-700 rounded-md px-3 py-2 text-sm text-white"
+              >
+                <option value="major">Major</option>
+                <option value="minor">Minor</option>
+                <option value="patch">Patch</option>
+              </select>
+            </div>
             <div className="flex gap-3">
               <button
                 onClick={() => setShowPromoteConfirm(false)}
