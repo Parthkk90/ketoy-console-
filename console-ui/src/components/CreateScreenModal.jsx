@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useScreenStore } from '../store/screenStore'
 import { screenAPI } from '../services/api'
-import { mapApiErrorMessage, prepareKtwUploadBinary, validateKtwFile } from '../services/ktwUtils'
+import { mapApiErrorMessage, prepareKtwUploadBinary, validateKtwFile, validateVersionCode } from '../services/ktwUtils'
 
 export default function CreateScreenModal({ isOpen, onClose, packageName, onSuccess }) {
   const { addScreen } = useScreenStore()
@@ -9,7 +9,7 @@ export default function CreateScreenModal({ isOpen, onClose, packageName, onSucc
   const [error, setError] = useState(null)
   const [screenName, setScreenName] = useState('')
   const [ktwFile, setKtwFile] = useState(null)
-  const [uploadBump, setUploadBump] = useState('patch')
+  const [uploadVersion, setUploadVersion] = useState('')
 
   useEffect(() => {
     if (!isOpen) {
@@ -17,7 +17,7 @@ export default function CreateScreenModal({ isOpen, onClose, packageName, onSucc
       setError(null)
       setScreenName('')
       setKtwFile(null)
-      setUploadBump('patch')
+      setUploadVersion('')
     }
   }, [isOpen])
 
@@ -39,6 +39,13 @@ export default function CreateScreenModal({ isOpen, onClose, packageName, onSucc
       return
     }
 
+    const versionValidationError = validateVersionCode(uploadVersion)
+    if (versionValidationError) {
+      setError(versionValidationError)
+      setLoading(false)
+      return
+    }
+
     try {
       const fileValidationError = await validateKtwFile(ktwFile)
       if (fileValidationError) {
@@ -46,7 +53,7 @@ export default function CreateScreenModal({ isOpen, onClose, packageName, onSucc
       }
 
       const { binary } = await prepareKtwUploadBinary(ktwFile)
-      const response = await screenAPI.uploadKtw(packageName, normalizedScreenName, binary, uploadBump)
+      const response = await screenAPI.uploadKtw(packageName, normalizedScreenName, binary, uploadVersion)
       const newScreen = response.data?.data || response.data
       addScreen(newScreen)
 
@@ -124,17 +131,16 @@ export default function CreateScreenModal({ isOpen, onClose, packageName, onSucc
 
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
-              Version Bump
+              Version Code
             </label>
-            <select
-              value={uploadBump}
-              onChange={(e) => setUploadBump(e.target.value)}
+            <input
+              type="text"
+              value={uploadVersion}
+              onChange={(e) => setUploadVersion(e.target.value)}
+              placeholder="1.0.0"
               className="w-full px-4 py-2 bg-[#0f1c2e] border border-gray-700 rounded-lg focus:outline-none focus:border-blue-500 text-white"
-            >
-              <option value="patch">Patch</option>
-              <option value="minor">Minor</option>
-              <option value="major">Major</option>
-            </select>
+            />
+            <p className="mt-1 text-xs text-gray-500">Enter a semantic version like 1.0.0.</p>
           </div>
 
           <div className="flex gap-3 pt-4">

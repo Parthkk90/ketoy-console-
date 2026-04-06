@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useScreenStore } from '../store/screenStore'
 import { screenAPI } from '../services/api'
 import VersionHistoryModal from '../components/VersionHistoryModal'
-import { mapApiErrorMessage, prepareKtwUploadBinary, validateKtwFile } from '../services/ktwUtils'
+import { mapApiErrorMessage, prepareKtwUploadBinary, validateKtwFile, validateVersionCode } from '../services/ktwUtils'
 
 export default function ScreenEditorPage() {
   const { packageName: routePackageName, screenName: routeScreenName } = useParams()
@@ -12,7 +12,7 @@ export default function ScreenEditorPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [uploadMessage, setUploadMessage] = useState('')
-  const [uploadBump, setUploadBump] = useState('patch')
+  const [uploadVersion, setUploadVersion] = useState('')
   const [showVersionHistory, setShowVersionHistory] = useState(false)
   const [selectedFile, setSelectedFile] = useState(null)
   const [screenMeta, setScreenMeta] = useState(null)
@@ -50,6 +50,7 @@ export default function ScreenEditorPage() {
       const screen = payload.screen || payload
       setCurrentScreen(screen || null)
       setScreenMeta(screen || null)
+      setUploadVersion((prev) => prev || screen?.version || '')
       setError(null)
     } catch (err) {
       const status = err?.response?.status
@@ -82,19 +83,20 @@ export default function ScreenEditorPage() {
       return
     }
 
+    const versionValidationError = validateVersionCode(uploadVersion)
+    if (versionValidationError) {
+      setError(versionValidationError)
+      return
+    }
+
     setSaving(true)
     setError(null)
     setUploadMessage('')
 
     try {
-      const { binary, notice } = await prepareKtwUploadBinary(selectedFile)
-      const response = await screenAPI.uploadKtw(packageName, screenName, binary, uploadBump)
-      const payload = response.data?.data || {}
-      const version = payload.version
-      const baseMessage = version
-        ? `KTW uploaded successfully as version ${version}.`
-        : 'KTW uploaded successfully.'
-      setUploadMessage(notice ? `${baseMessage} ${notice}` : baseMessage)
+      const { binary } = await prepareKtwUploadBinary(selectedFile)
+      const response = await screenAPI.uploadKtw(packageName, screenName, binary, uploadVersion)
+      setUploadMessage('KTW uploaded successfully.')
       setSelectedFile(null)
       await fetchScreenDetails()
     } catch (err) {
@@ -210,8 +212,18 @@ export default function ScreenEditorPage() {
       )}
 
       {uploadMessage && (
-        <div className="mb-4 p-4 bg-green-500/10 border border-green-500/50 rounded-lg text-green-300">
-          {uploadMessage}
+        <div className="mb-4 ketoy-card-surface-soft rounded-2xl border border-white/10 px-4 py-3 text-sm text-gray-200 pd-fade pd-fade-2">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <div>
+              <p className="font-medium text-white">Upload complete</p>
+              <p className="mt-1 text-sm text-gray-300">{uploadMessage}</p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -266,16 +278,14 @@ export default function ScreenEditorPage() {
 
                 <div className="flex items-center gap-3">
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1">Version bump</label>
-                    <select
-                      value={uploadBump}
-                      onChange={(event) => setUploadBump(event.target.value)}
-                      className="bg-[#0f1c2e] border border-gray-700 rounded-md px-2.5 py-1.5 text-sm text-white"
-                    >
-                      <option value="patch">Patch</option>
-                      <option value="minor">Minor</option>
-                      <option value="major">Major</option>
-                    </select>
+                    <label className="block text-xs text-gray-400 mb-1">Version code</label>
+                    <input
+                      type="text"
+                      value={uploadVersion}
+                      onChange={(event) => setUploadVersion(event.target.value)}
+                      placeholder="1.0.3"
+                      className="bg-[#0f1c2e] border border-gray-700 rounded-md px-2.5 py-1.5 text-sm text-white w-32"
+                    />
                   </div>
                   <button
                     onClick={handleUpload}

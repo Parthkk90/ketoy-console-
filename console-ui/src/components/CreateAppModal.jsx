@@ -12,8 +12,7 @@ export default function CreateAppModal({ isOpen, onClose, onSuccess }) {
   const [formData, setFormData] = useState({
     packageName: '',
     appName: '',
-    description: '',
-    platform: 'android'
+    description: ''
   })
 
   const handleChange = (e) => {
@@ -29,7 +28,7 @@ export default function CreateAppModal({ isOpen, onClose, onSuccess }) {
       const response = await appAPI.register({
         ...formData,
         metadata: {
-          platform: formData.platform
+          platform: 'android'
         }
       })
       
@@ -126,22 +125,6 @@ export default function CreateAppModal({ isOpen, onClose, onSuccess }) {
                   rows={3}
                   className="w-full px-4 py-2 bg-[#0f1c2e] border border-gray-700 rounded-lg focus:outline-none focus:border-emerald-500 text-white resize-none select-text"
                 />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Platform
-                </label>
-                <select
-                  name="platform"
-                  value={formData.platform}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 bg-[#0f1c2e] border border-gray-700 rounded-lg focus:outline-none focus:border-emerald-500 text-white"
-                >
-                  <option value="both">Both (iOS & Android)</option>
-                  <option value="android">Android</option>
-                  <option value="ios">iOS</option>
-                </select>
               </div>
 
               <div className="flex gap-3 pt-4">

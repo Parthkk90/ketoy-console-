@@ -8,38 +8,10 @@ import CreateScreenModal from '../components/CreateScreenModal'
 import VersionHistoryModal from '../components/VersionHistoryModal'
 import { fileToBase64, formatDateTime, formatKtwSizeKb, mapApiErrorMessage, prepareKtwUploadBinary, validateKtwFile } from '../services/ktwUtils'
 
-const DetailStatCard = ({ icon, label, value, accent }) => (
-  <div
-    style={{
-      background: accent
-        ? 'linear-gradient(135deg, rgba(26,115,232,0.12), rgba(26,115,232,0.04))'
-        : 'rgba(255,255,255,0.03)',
-      border: accent ? '1px solid rgba(26,115,232,0.25)' : '1px solid rgba(255,255,255,0.08)',
-      borderRadius: 14,
-      padding: '18px 20px'
-    }}
-  >
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-      <div
-        style={{
-          width: 32,
-          height: 32,
-          borderRadius: 8,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: accent
-            ? 'linear-gradient(135deg, #1A73E8, #42A5F5)'
-            : 'rgba(255,255,255,0.06)'
-        }}
-      >
-        <span style={{ width: 16, height: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: accent ? '#fff' : '#42A5F5' }}>
-          {icon}
-        </span>
-      </div>
-      <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', letterSpacing: '0.02em' }}>{label}</span>
-    </div>
-    <p style={{ fontSize: 26, fontWeight: 600, color: '#fff', letterSpacing: '-0.02em', margin: 0 }}>{value}</p>
+const DetailStat = ({ label, value, accent }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.38)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{label}</span>
+    <span style={{ fontSize: 22, fontWeight: 600, color: accent ? '#60a5fa' : '#fff', letterSpacing: '-0.02em' }}>{value}</span>
   </div>
 )
 
@@ -445,35 +417,12 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      <div className="pd-fade pd-fade-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
-        <DetailStatCard
-          label="Screens"
-          value={totalScreens}
-          accent
-          icon={(
-            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          )}
-        />
-        <DetailStatCard
-          label="Bundle Versions"
-          value={totalSnapshots}
-          icon={(
-            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.5l7 3.5-7 3.5-7-3.5 7-3.5zm0 7l7 3.5-7 3.5-7-3.5 7-3.5z" />
-            </svg>
-          )}
-        />
-        <DetailStatCard
-          label="Last Activity"
-          value={latestActivity}
-          icon={(
-            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          )}
-        />
+      <div className="pd-fade pd-fade-2" style={{ display: 'flex', gap: 32, marginBottom: 28, padding: '16px 20px', background: 'rgba(255,255,255,0.03)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.07)' }}>
+        <DetailStat label="Screens" value={totalScreens} accent />
+        <div style={{ width: 1, background: 'rgba(255,255,255,0.08)' }} />
+        <DetailStat label="Bundle Versions" value={totalSnapshots} />
+        <div style={{ width: 1, background: 'rgba(255,255,255,0.08)' }} />
+        <DetailStat label="Last Activity" value={latestActivity} />
       </div>
 
       <div className="pd-fade pd-fade-3" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
@@ -662,51 +611,47 @@ export default function ProjectDetailPage() {
 
       <section id="bundle-snapshots-section" className={`mt-10 transition-all ${snapshotSectionPulse ? 'ring-2 ring-blue-400/70 rounded-2xl' : ''}`}>
         <div className="ketoy-card-surface-soft rounded-2xl p-4">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-5">
             <div>
-              <h2 className="text-xl font-semibold text-white">Bundle Versions</h2>
-              <p className="text-xs text-gray-400 mt-1">Inspect or promote previously uploaded bundle versions.</p>
+              <h2 className="text-lg font-semibold text-white">Bundle Versions</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Inspect or promote previously uploaded bundle versions.</p>
             </div>
             <Link
               to={`/projects/${packageName}/bundles`}
-              className="btn-ketoy btn-ketoy-secondary"
+              className="btn-ketoy btn-ketoy-secondary !text-xs"
             >
               Open Full View
             </Link>
           </div>
 
-          <div className="mb-5 rounded-xl border border-white/10 bg-[#121d2f] p-4">
-            <p className="text-sm text-white font-medium">Upload Bundle (.ktw files)</p>
-            <p className="mt-1 text-xs text-gray-400">Select up to 50 files (.ktw or gzipped exports). Screen IDs are derived from file names.</p>
-            <div className="mt-3 flex flex-col sm:flex-row gap-3 sm:items-center">
-              <div className="flex-1 rounded-lg border border-white/10 bg-[#0f1c2e] px-3 py-2.5">
-                <div className="flex items-center gap-3">
-                  <label
-                    htmlFor="bundle-ktw-files"
-                    className="btn-ketoy btn-ketoy-primary inline-flex items-center cursor-pointer"
-                  >
-                    Choose Files
-                  </label>
-                  <span className="text-xs text-gray-400 truncate">
-                    {bundleFiles.length > 0
-                      ? `${bundleFiles.length} file${bundleFiles.length > 1 ? 's' : ''} selected`
-                      : 'No files selected'}
-                  </span>
-                </div>
-                <input
-                  id="bundle-ktw-files"
-                  type="file"
-                  multiple
-                  onChange={handleBundleFilesChange}
-                  className="sr-only"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Version bump</label>
+          <div className="mb-5">
+            <p className="text-sm text-white font-medium mb-0.5">Upload Bundle (.ktw files)</p>
+            <p className="text-xs text-gray-500 mb-3">Select up to 50 files. Screen IDs are derived from file names.</p>
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+              <label
+                htmlFor="bundle-ktw-files"
+                className="btn-ketoy btn-ketoy-secondary inline-flex items-center cursor-pointer"
+              >
+                Choose Files
+              </label>
+              <span className="text-xs text-gray-400 truncate flex-1">
+                {bundleFiles.length > 0
+                  ? `${bundleFiles.length} file${bundleFiles.length > 1 ? 's' : ''} selected`
+                  : 'No files selected'}
+              </span>
+              <input
+                id="bundle-ktw-files"
+                type="file"
+                multiple
+                onChange={handleBundleFilesChange}
+                className="sr-only"
+              />
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-500 whitespace-nowrap">Version bump</label>
                 <select
                   value={bundleBump}
                   onChange={(event) => setBundleBump(event.target.value)}
-                  className="bg-[#0f1c2e] border border-gray-700 rounded-md px-2.5 py-2 text-sm text-white"
+                  className="bg-[#0f1c2e] border border-gray-700 rounded-md px-2.5 py-1.5 text-sm text-white"
                 >
                   <option value="patch">Patch</option>
                   <option value="minor">Minor</option>
@@ -753,6 +698,8 @@ export default function ProjectDetailPage() {
               </div>
             )}
           </div>
+
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0 16px' }} />
 
           {promoteMessage && (
             <div className="mb-4 p-3 rounded-lg bg-green-500/10 border border-green-500/40 text-green-300 text-sm">

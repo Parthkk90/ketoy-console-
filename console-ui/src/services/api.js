@@ -184,20 +184,21 @@ export const appAPI = {
 
 // Screen APIs
 export const screenAPI = {
-  upload: (bundleId, screenId, data, bump = 'patch') => screenAPI.uploadKtw(bundleId, screenId, data, bump),
+  upload: (bundleId, screenId, data, version = '') => screenAPI.uploadKtw(bundleId, screenId, data, version),
 
   getAll: (bundleId, params = {}) => api.get(`/apps/${encodeURIComponent(bundleId)}/screens`, { params }),
 
   getDetails: (bundleId, screenId) => api.get(`/apps/${encodeURIComponent(bundleId)}/screens/${encodeURIComponent(screenId)}`),
 
-  update: (bundleId, screenId, data, bump = 'patch') => screenAPI.uploadKtw(bundleId, screenId, data, bump),
+  update: (bundleId, screenId, data, version = '') => screenAPI.uploadKtw(bundleId, screenId, data, version),
 
   delete: (bundleId, screenId) => api.delete(`/apps/${encodeURIComponent(bundleId)}/screens/${encodeURIComponent(screenId)}`),
   fetchPublic: (bundleId, screenId) => screenAPI.fetchPublicKtw(bundleId, screenId),
 
-  uploadKtw: (bundleId, screenId, binaryData, bump = 'patch') => {
-    const normalizedBump = ['patch', 'minor', 'major'].includes(bump) ? bump : 'patch'
-    return api.post(`/apps/${encodeURIComponent(bundleId)}/screens/${encodeURIComponent(screenId)}/ktw?bump=${encodeURIComponent(normalizedBump)}`, asKtwBinary(binaryData), {
+  uploadKtw: (bundleId, screenId, binaryData, version = '') => {
+    const normalizedVersion = String(version || '').trim()
+    const versionQuery = normalizedVersion ? `?version=${encodeURIComponent(normalizedVersion)}` : ''
+    return api.post(`/apps/${encodeURIComponent(bundleId)}/screens/${encodeURIComponent(screenId)}/ktw${versionQuery}`, asKtwBinary(binaryData), {
       headers: { 'Content-Type': 'application/octet-stream' }
     })
   },

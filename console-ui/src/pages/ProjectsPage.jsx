@@ -110,14 +110,20 @@ export default function ProjectsPage() {
     fetchApps({ append: true, token: nextToken })
   }
 
-  const filtered = apps.filter(
+  const sortedApps = [...apps].sort((left, right) => {
+    const leftTime = new Date(left.updatedAt || left.createdAt || 0).getTime()
+    const rightTime = new Date(right.updatedAt || right.createdAt || 0).getTime()
+    return rightTime - leftTime
+  })
+
+  const filtered = sortedApps.filter(
     (a) =>
       (a.appName || '').toLowerCase().includes(search.toLowerCase()) ||
       (a.packageName || '').toLowerCase().includes(search.toLowerCase())
   )
 
   const displayName = developer?.username || developer?.email?.split('@')[0] || null
-  const lastActivity = apps.length > 0 ? timeAgo(apps[0].updatedAt || apps[0].createdAt) : '—'
+  const lastActivity = sortedApps.length > 0 ? timeAgo(sortedApps[0].updatedAt || sortedApps[0].createdAt) : '—'
 
   return (
     <>

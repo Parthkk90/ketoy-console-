@@ -52,6 +52,15 @@ const ensureKtwHeader = (bytes) => {
   return { bytes: repaired, repaired: true }
 }
 
+export const validateVersionCode = (value) => {
+  const version = String(value || '').trim()
+  if (!version) return 'Version code is required.'
+  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+    return API_ERROR_MESSAGES.INVALID_VERSION
+  }
+  return ''
+}
+
 export const validateKtwFile = async (file) => {
   if (!file) return 'Select a .ktw file to upload.'
   if (file.size < 4) return 'File is not a valid KTW binary'
