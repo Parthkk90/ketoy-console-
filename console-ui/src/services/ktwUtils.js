@@ -6,7 +6,10 @@ const API_ERROR_MESSAGES = {
   UNSUPPORTED_MEDIA_TYPE: 'Wrong content type — use a .ktw file',
   FORBIDDEN: "You don't own this app",
   CONFLICT: 'App ID already exists',
-  PAYLOAD_TOO_LARGE: 'File exceeds 1 MB limit'
+  PAYLOAD_TOO_LARGE: 'File exceeds 1 MB limit',
+  INVALID_VERSION: 'Version must be in MAJOR.MINOR.PATCH format (e.g. 1.0.3)',
+  INVALID_JSON: 'Request body is not valid JSON',
+  MISSING_FIELDS: 'A required field is missing from the request'
 }
 
 const readFilePrefix = async (file, length) => {
