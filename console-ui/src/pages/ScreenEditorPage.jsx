@@ -12,6 +12,7 @@ export default function ScreenEditorPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [uploadMessage, setUploadMessage] = useState('')
+  const [uploadBump, setUploadBump] = useState('patch')
   const [showVersionHistory, setShowVersionHistory] = useState(false)
   const [selectedFile, setSelectedFile] = useState(null)
   const [screenMeta, setScreenMeta] = useState(null)
@@ -87,8 +88,13 @@ export default function ScreenEditorPage() {
 
     try {
       const { binary, notice } = await prepareKtwUploadBinary(selectedFile)
-      await screenAPI.uploadKtw(packageName, screenName, binary)
-      setUploadMessage(notice ? `KTW uploaded successfully. ${notice}` : 'KTW uploaded successfully.')
+      const response = await screenAPI.uploadKtw(packageName, screenName, binary, uploadBump)
+      const payload = response.data?.data || {}
+      const version = payload.version
+      const baseMessage = version
+        ? `KTW uploaded successfully as version ${version}.`
+        : 'KTW uploaded successfully.'
+      setUploadMessage(notice ? `${baseMessage} ${notice}` : baseMessage)
       setSelectedFile(null)
       await fetchScreenDetails()
     } catch (err) {
@@ -259,6 +265,18 @@ export default function ScreenEditorPage() {
                 )}
 
                 <div className="flex items-center gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Version bump</label>
+                    <select
+                      value={uploadBump}
+                      onChange={(event) => setUploadBump(event.target.value)}
+                      className="bg-[#0f1c2e] border border-gray-700 rounded-md px-2.5 py-1.5 text-sm text-white"
+                    >
+                      <option value="patch">Patch</option>
+                      <option value="minor">Minor</option>
+                      <option value="major">Major</option>
+                    </select>
+                  </div>
                   <button
                     onClick={handleUpload}
                     disabled={saving || !selectedFile}

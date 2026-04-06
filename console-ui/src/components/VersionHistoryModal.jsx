@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { screenAPI } from '../services/api'
-import { mapApiErrorMessage, truncateId } from '../services/ktwUtils'
+import { mapApiErrorMessage } from '../services/ktwUtils'
 
 const formatRelativeTime = (dateString) => {
   if (!dateString) return 'just now'
@@ -36,12 +36,13 @@ const formatFileSize = (bytes) => {
 
 export default function VersionHistoryModal({ isOpen, onClose, packageName, screenName, onLoadVersion }) {
   const [versions, setVersions] = useState([])
+  const [currentVersion, setCurrentVersion] = useState('')
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState(null)
   const [successMessage, setSuccessMessage] = useState('')
-  const [selectedVersion, setSelectedVersion] = useState(null)
+  const [selectedVersion, setSelectedVersion] = useState('')
   const [downloadUrl, setDownloadUrl] = useState('')
-  const [loadingVersion, setLoadingVersion] = useState(null)
+  const [loadingVersion, setLoadingVersion] = useState('')
   const [rolling, setRolling] = useState(false)
   const [pendingRollbackVersion, setPendingRollbackVersion] = useState('')
 
@@ -61,7 +62,7 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
 
     const timer = window.setTimeout(() => {
       setSuccessMessage('')
-    }, 3000)
+    }, 4000)
 
     return () => window.clearTimeout(timer)
   }, [successMessage])
@@ -80,15 +81,15 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
 
     try {
       const response = await screenAPI.getVersions(packageName, screenName)
-      const versionsData = response.data?.data?.versions || {}
-      setVersions(Array.isArray(versionsData.ktw) ? versionsData.ktw : [])
-      setSelectedVersion(null)
+      const payload = response.data?.data || {}
+      setCurrentVersion(payload.currentVersion || '')
+      setVersions(Array.isArray(payload.items) ? payload.items : [])
+      setSelectedVersion('')
       if (downloadUrl) {
         URL.revokeObjectURL(downloadUrl)
         setDownloadUrl('')
       }
     } catch (err) {
-      console.error('Failed to fetch versions:', err)
       const status = err?.response?.status
       if (status === 404) {
         setFetchError('Version history is not available in this environment.')
@@ -100,28 +101,27 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
     }
   }
 
-  const handleViewVersion = async (versionId) => {
-    setSelectedVersion(versionId)
+  const handleViewVersion = async (version) => {
+    setSelectedVersion(version)
     if (downloadUrl) {
       URL.revokeObjectURL(downloadUrl)
       setDownloadUrl('')
     }
 
-    setLoadingVersion(versionId)
+    setLoadingVersion(version)
     try {
-      const response = await screenAPI.getByVersion(packageName, screenName, versionId)
-      const blob = new Blob([response.data], { type: 'application/vnd.ketoy.ktw' })
+      const response = await screenAPI.getByVersion(packageName, screenName, version)
+      const blob = new Blob([response.data], { type: 'application/octet-stream' })
       setDownloadUrl(URL.createObjectURL(blob))
     } catch (err) {
-      console.error('Failed to fetch version:', err)
       const status = err?.response?.status
       if (status === 404) {
         setFetchError('Version history is not available in this environment.')
       } else {
-        setFetchError(mapApiErrorMessage(err, 'Failed to load version history. Please try again.'))
+        setFetchError(mapApiErrorMessage(err, 'Failed to load version file. Please try again.'))
       }
     } finally {
-      setLoadingVersion(null)
+      setLoadingVersion('')
     }
   }
 
@@ -139,16 +139,18 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
     setFetchError(null)
 
     try {
-      await screenAPI.rollback(packageName, screenName, pendingRollbackVersion)
-      setSuccessMessage('Rollback successful. The screen now serves the selected version.')
+      const response = await screenAPI.rollback(packageName, screenName, pendingRollbackVersion)
+      const data = response.data?.data || {}
+      const rolledBackFrom = data.rolledBackFrom || pendingRollbackVersion
+      const newVersion = data.newVersion || '-'
+      setSuccessMessage(`Rolled back from ${rolledBackFrom} -> new version is ${newVersion}`)
       await fetchVersions()
-      setSelectedVersion(null)
+      setSelectedVersion('')
       setPendingRollbackVersion('')
       if (onLoadVersion) {
         onLoadVersion()
       }
     } catch (err) {
-      console.error('Rollback failed:', err)
       const status = err?.response?.status
       if (status === 404) {
         setFetchError('Version history is not available in this environment.')
@@ -172,6 +174,8 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
   }
 
   if (!isOpen) return null
+
+  const selectedVersionRow = versions.find((item) => item.version === selectedVersion)
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -213,7 +217,7 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
             </div>
           ) : (
             <div className="h-full overflow-hidden flex">
-              <div className="w-80 border-r border-gray-800 overflow-y-auto">
+              <div className="w-[26rem] border-r border-gray-800 overflow-y-auto">
                 {loading ? (
                   <div className="flex items-center justify-center py-12">
                     <div className="w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -224,33 +228,39 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
                   </div>
                 ) : (
                   <div className="divide-y divide-gray-800">
-                    {versions.map((version) => (
-                      <div
-                        key={version.versionId}
-                        className={`p-4 cursor-pointer transition-colors ${
-                          selectedVersion === version.versionId
-                            ? 'bg-blue-500/10 border-l-4 border-blue-500 pl-3'
-                            : 'hover:bg-[#0f1c2e]'
-                        }`}
-                        onClick={() => handleViewVersion(version.versionId)}
-                      >
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-sm text-blue-400" title={version.versionId}>{truncateId(version.versionId, 8, 6)}</span>
-                            {version.isLatest && (
-                              <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded-full">
-                                Current
-                              </span>
+                    {versions.map((item) => {
+                      const isCurrent = item.version === currentVersion
+                      return (
+                        <div
+                          key={item.version}
+                          className={`p-4 cursor-pointer transition-colors ${
+                            selectedVersion === item.version
+                              ? 'bg-blue-500/10 border-l-4 border-blue-500 pl-3'
+                              : 'hover:bg-[#0f1c2e]'
+                          }`}
+                          onClick={() => handleViewVersion(item.version)}
+                        >
+                          <div className="flex items-start justify-between mb-2 gap-3">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono text-sm text-blue-300">{item.version}</span>
+                              {isCurrent && (
+                                <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded-full">
+                                  Current
+                                </span>
+                              )}
+                            </div>
+                            {loadingVersion === item.version && (
+                              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                             )}
                           </div>
-                          {loadingVersion === version.versionId && (
-                            <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                          )}
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <p className="text-gray-400">Uploaded: {formatRelativeTime(item.uploadedAt)}</p>
+                            <p className="text-gray-500">Size: {formatFileSize(item.ktwSizeBytes)}</p>
+                            <p className="text-gray-400 col-span-2">By: {item.uploadedBy || 'unknown'}</p>
+                          </div>
                         </div>
-                        <p className="text-xs text-gray-400 mb-1">{formatRelativeTime(version.lastModified)}</p>
-                        <p className="text-xs text-gray-500">{formatFileSize(version.sizeBytes)}</p>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -258,13 +268,13 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
               <div className="flex-1 flex flex-col overflow-hidden">
                 {selectedVersion ? (
                   <>
-                    <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+                    <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between gap-4">
                       <div>
                         <h3 className="text-lg font-semibold text-white">Version {selectedVersion}</h3>
-                        <p className="text-sm text-gray-400 mt-1">KTW binary snapshot</p>
+                        <p className="text-sm text-gray-400 mt-1">{selectedVersionRow?.uploadedBy || 'unknown'} · {formatRelativeTime(selectedVersionRow?.uploadedAt)}</p>
                       </div>
                       <div className="flex gap-2">
-                        {!versions.find((version) => version.versionId === selectedVersion)?.isLatest && (
+                        {selectedVersion !== currentVersion && (
                           <button
                             onClick={() => setPendingRollbackVersion(selectedVersion)}
                             disabled={rolling}
@@ -308,7 +318,7 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
           <div className="bg-[#111b2b] rounded-2xl max-w-md w-full p-6 border border-amber-500/40 shadow-2xl shadow-black/40">
             <h3 className="text-lg font-bold text-white mb-3">Rollback this version?</h3>
             <p className="text-sm text-gray-300 mb-5">
-              Rollback to <span className="font-mono text-white">{truncateId(pendingRollbackVersion, 10, 8)}</span>? This will create a new latest version with this content.
+              Rollback to <span className="font-mono text-white">{pendingRollbackVersion}</span>? This will create a new latest version with this content.
             </p>
             <div className="flex gap-3">
               <button

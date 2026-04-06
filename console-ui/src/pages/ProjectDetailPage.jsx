@@ -69,8 +69,12 @@ export default function ProjectDetailPage() {
   const [search, setSearch] = useState('')
   const [historyScreenId, setHistoryScreenId] = useState('')
   const [bundleFiles, setBundleFiles] = useState([])
+  const [bundleBump, setBundleBump] = useState('patch')
   const [bundleUploadError, setBundleUploadError] = useState('')
+  const [bundleUploadMessage, setBundleUploadMessage] = useState('')
+  const [bundleUploadResults, setBundleUploadResults] = useState([])
   const [bundleUploading, setBundleUploading] = useState(false)
+  const [promoteBump, setPromoteBump] = useState('major')
   const [screenPendingDelete, setScreenPendingDelete] = useState('')
   const [screenDeleting, setScreenDeleting] = useState(false)
   const [bundleUploadResult] = useState(location.state?.bundleUploadResult || null)
@@ -257,8 +261,12 @@ export default function ProjectDetailPage() {
     setPromoteMessage('')
 
     try {
-      await bundleAPI.promote(packageName, snapshot.snapshotId)
-      setPromoteMessage('Promoted successfully')
+      const response = await bundleAPI.promote(packageName, snapshot.snapshotId, promoteBump)
+      const data = response.data?.data || {}
+      const bundleVersion = data.bundleVersion
+      const screenResults = Array.isArray(data.results) ? data.results.filter((item) => item?.ok).map((item) => `${item.screenId}:${item.version || '-'}`) : []
+      const versionsLine = screenResults.length > 0 ? ` Screens: ${screenResults.join(', ')}` : ''
+      setPromoteMessage(bundleVersion ? `Promoted successfully. Bundle version ${bundleVersion}.${versionsLine}` : 'Promoted successfully.')
       setConfirmPromoteSnapshotId('')
       await fetchScreens()
       await fetchSnapshots()
@@ -270,6 +278,7 @@ export default function ProjectDetailPage() {
   }
 
   const handleBundleFilesChange = (event) => {
+    setBundleUploadMessage('')
     setBundleUploadError('')
     setBundleFiles(Array.from(event.target.files || []))
   }
@@ -290,6 +299,8 @@ export default function ProjectDetailPage() {
     }
 
     setBundleUploading(true)
+    setBundleUploadMessage('')
+    setBundleUploadResults([])
     setBundleUploadError('')
 
     try {
@@ -310,15 +321,17 @@ export default function ProjectDetailPage() {
         payload.push({ screenId, ktw })
       }
 
-      const response = await screenAPI.uploadBundleKtw(packageName, payload)
-      const snapshotId = response.data?.data?.snapshotId
+      const response = await screenAPI.uploadBundleKtw(packageName, payload, bundleBump)
+      const data = response.data?.data || {}
+      const snapshotId = data.snapshotId
+      const bundleVersion = data.bundleVersion
+      setBundleUploadResults(Array.isArray(data.results) ? data.results : [])
+      setBundleUploadMessage(bundleVersion
+        ? `Bundle uploaded successfully. Bundle version ${bundleVersion}${snapshotId ? ` · Snapshot ${snapshotId}` : ''}`
+        : 'Bundle uploaded successfully.')
 
       await fetchScreens()
       await fetchSnapshots()
-
-      if (snapshotId) {
-        navigate(`/projects/${packageName}/bundles?snapshotId=${encodeURIComponent(snapshotId)}`)
-      }
     } catch (err) {
       setBundleUploadError(mapApiErrorMessage(err, 'Failed to upload bundle'))
     } finally {
@@ -584,6 +597,7 @@ export default function ProjectDetailPage() {
                 <thead className="bg-[#0f1c2e] text-gray-300 sticky top-0">
                   <tr>
                     <th className="text-left px-4 py-3 font-medium">Screen ID</th>
+                    <th className="text-left px-4 py-3 font-medium">Version</th>
                     <th className="text-left px-4 py-3 font-medium">KTW Size</th>
                     <th className="text-left px-4 py-3 font-medium">Updated At</th>
                     <th className="text-left px-4 py-3 font-medium">Updated By</th>
@@ -597,6 +611,7 @@ export default function ProjectDetailPage() {
                     return (
                       <tr key={normalizedScreenId || screen.id || screen._id} className="bg-[#121d2f]/75 hover:bg-[#15233a] transition-colors">
                         <td className="px-4 py-3 font-mono text-white">{screenId || '-'}</td>
+                        <td className="px-4 py-3 text-gray-300 font-mono">{screen.version || '—'}</td>
                         <td className="px-4 py-3 text-gray-300">{formatKtwSizeKb(screen.ktwSizeBytes)}</td>
                         <td className="px-4 py-3 text-gray-300">{formatDateTime(screen.updatedAt || screen.createdAt)}</td>
                         <td className="px-4 py-3 text-gray-300">{getUpdatedByEmail(screen)}</td>
@@ -686,6 +701,18 @@ export default function ProjectDetailPage() {
                   className="sr-only"
                 />
               </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Version bump</label>
+                <select
+                  value={bundleBump}
+                  onChange={(event) => setBundleBump(event.target.value)}
+                  className="bg-[#0f1c2e] border border-gray-700 rounded-md px-2.5 py-2 text-sm text-white"
+                >
+                  <option value="patch">Patch</option>
+                  <option value="minor">Minor</option>
+                  <option value="major">Major</option>
+                </select>
+              </div>
               <button
                 type="button"
                 onClick={handleBundleUpload}
@@ -697,6 +724,33 @@ export default function ProjectDetailPage() {
             </div>
             {bundleUploadError && (
               <p className="mt-3 text-sm text-red-300">{bundleUploadError}</p>
+            )}
+            {bundleUploadMessage && (
+              <p className="mt-3 text-sm text-green-300">{bundleUploadMessage}</p>
+            )}
+            {bundleUploadResults.length > 0 && (
+              <div className="mt-3 overflow-hidden rounded-lg border border-white/10">
+                <table className="w-full text-xs">
+                  <thead className="bg-[#0f1c2e] text-gray-300">
+                    <tr>
+                      <th className="text-left px-3 py-2">Screen</th>
+                      <th className="text-left px-3 py-2">Status</th>
+                      <th className="text-left px-3 py-2">Version</th>
+                      <th className="text-left px-3 py-2">Size</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/10">
+                    {bundleUploadResults.map((result, index) => (
+                      <tr key={`${result?.screenId || 'screen'}-${index}`} className="bg-[#111a2a]">
+                        <td className="px-3 py-2 font-mono text-gray-200">{result?.screenId || '-'}</td>
+                        <td className="px-3 py-2">{result?.ok ? 'ok' : 'failed'}</td>
+                        <td className="px-3 py-2 font-mono text-blue-300">{result?.version || '—'}</td>
+                        <td className="px-3 py-2 text-gray-300">{result?.ktwSizeBytes ?? result?.sizeBytes ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
 
@@ -774,6 +828,18 @@ export default function ProjectDetailPage() {
                           <p className="text-sm text-amber-200">
                             Promote Version {versionLabel}? This will overwrite all {snapshot.screenCount || 0} screens with this uploaded bundle version. Current content will be preserved in version history.
                           </p>
+                          <div className="mt-3 max-w-[180px]">
+                            <label className="block text-xs text-amber-100/80 mb-1">Version bump</label>
+                            <select
+                              value={promoteBump}
+                              onChange={(event) => setPromoteBump(event.target.value)}
+                              className="w-full bg-[#0f1c2e] border border-amber-500/40 rounded-md px-2.5 py-1.5 text-xs text-white"
+                            >
+                              <option value="major">Major</option>
+                              <option value="minor">Minor</option>
+                              <option value="patch">Patch</option>
+                            </select>
+                          </div>
                           <div className="mt-3 flex gap-2">
                             <button
                               type="button"
