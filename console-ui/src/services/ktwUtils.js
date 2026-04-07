@@ -9,7 +9,13 @@ const API_ERROR_MESSAGES = {
   PAYLOAD_TOO_LARGE: 'File exceeds 1 MB limit',
   INVALID_VERSION: 'Version must be in MAJOR.MINOR.PATCH format (e.g. 1.0.3)',
   INVALID_JSON: 'Request body is not valid JSON',
-  MISSING_FIELDS: 'A required field is missing from the request'
+  MISSING_FIELDS: 'A required field is missing from the request',
+  VERSION_TAKEN: 'This version already exists. Choose a different version number.',
+  NO_PENDING_VERIFICATION: "Call 'Verify Domain' first to generate a token",
+  TOKEN_EXPIRED: 'Verification token expired — request a new one',
+  INVALID_BUNDLE_ID: 'Bundle ID needs at least 3 segments to verify (e.g. com.example.app)',
+  FREE_TIER_NOT_ELIGIBLE: 'Domain verification is not available for free-tier apps',
+  INVALID_PARAMS: 'Invalid parameter value'
 }
 
 const readFilePrefix = async (file, length) => {
@@ -142,5 +148,7 @@ export const mapApiErrorMessage = (error, fallback = 'Request failed') => {
 
   return error?.response?.data?.error?.message || error?.response?.data?.message || error?.message || fallback
 }
+
+export const isFreeTierApp = (bundleId) => String(bundleId || '').startsWith('dev.ketoy.')
 
 export { API_ERROR_MESSAGES, MAX_KTW_SIZE_BYTES }

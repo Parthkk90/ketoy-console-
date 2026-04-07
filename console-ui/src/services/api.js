@@ -179,7 +179,9 @@ export const appAPI = {
     if (Array.isArray(data?.contacts)) payload.contacts = data.contacts
     return api.put(`/apps/${encodeURIComponent(bundleId)}`, payload)
   },
-  delete: (bundleId) => api.delete(`/apps/${encodeURIComponent(bundleId)}`)
+  delete: (bundleId) => api.delete(`/apps/${encodeURIComponent(bundleId)}`),
+  requestVerification: (appId) => api.post(`/apps/${encodeURIComponent(appId)}/verify`),
+  checkVerification: (appId) => api.post(`/apps/${encodeURIComponent(appId)}/verify/check`)
 }
 
 // Screen APIs
@@ -209,11 +211,13 @@ export const screenAPI = {
       responseType: 'arraybuffer'
     }),
 
-  uploadBundle: (bundleId, screens, bump = 'patch') => screenAPI.uploadBundleKtw(bundleId, screens, bump),
+  uploadBundle: (bundleId, screens, bundleVersion) => screenAPI.uploadBundleKtw(bundleId, screens, bundleVersion),
 
-  uploadBundleKtw: (bundleId, screens, bump = 'patch') => {
-    const normalizedBump = ['patch', 'minor', 'major'].includes(bump) ? bump : 'patch'
-    return api.post(`/apps/${encodeURIComponent(bundleId)}/screens/bundle/ktw`, { bump: normalizedBump, screens })
+  uploadBundleKtw: (bundleId, screens, bundleVersion) => {
+    return api.post(`/apps/${encodeURIComponent(bundleId)}/screens/bundle/ktw`, {
+      bundleVersion,
+      screens: screens.map((s) => ({ screenId: s.screenId, version: bundleVersion, ktw: s.ktw }))
+    })
   },
 
   getVersions: (bundleId, screenId) => api.get(`/apps/${encodeURIComponent(bundleId)}/screens/${encodeURIComponent(screenId)}/versions`),
@@ -222,7 +226,7 @@ export const screenAPI = {
     api.get(`/apps/${encodeURIComponent(bundleId)}/screens/${encodeURIComponent(screenId)}/versions/${encodeURIComponent(version)}`, {
       responseType: 'arraybuffer'
     }),
-  rollback: (bundleId, screenId, version) => api.post(`/apps/${encodeURIComponent(bundleId)}/screens/${encodeURIComponent(screenId)}/rollback`, { version })
+  rollback: (bundleId, screenId, version, newVersion) => api.post(`/apps/${encodeURIComponent(bundleId)}/screens/${encodeURIComponent(screenId)}/rollback`, { version, newVersion })
 }
 
 export const bundleAPI = {
@@ -232,9 +236,11 @@ export const bundleAPI = {
   getDetails: (bundleId, snapshotId) =>
     api.get(`/apps/${encodeURIComponent(bundleId)}/bundles/${encodeURIComponent(snapshotId)}`),
   
-  promote: (bundleId, snapshotId, bump = 'major') => {
-    const normalizedBump = ['patch', 'minor', 'major'].includes(bump) ? bump : 'major'
-    return api.post(`/apps/${encodeURIComponent(bundleId)}/bundles/${encodeURIComponent(snapshotId)}/promote`, { bump: normalizedBump })
+  promote: (bundleId, snapshotId, newBundleVersion, screenIds) => {
+    return api.post(`/apps/${encodeURIComponent(bundleId)}/bundles/${encodeURIComponent(snapshotId)}/promote`, {
+      newBundleVersion,
+      screens: screenIds.map((screenId) => ({ screenId, newVersion: newBundleVersion }))
+    })
   }
 }
 
