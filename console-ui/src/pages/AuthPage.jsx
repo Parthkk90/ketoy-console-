@@ -266,15 +266,24 @@ export default function AuthPage() {
 
     try {
       const email = signupEmail.trim()
-      await callCognito('AWSCognitoIdentityProviderService.SignUp', {
+      const signUpResponse = await callCognito('AWSCognitoIdentityProviderService.SignUp', {
         ClientId: COGNITO_CLIENT_ID,
         Username: email,
-        Password: signupData.password
+        Password: signupData.password,
+        UserAttributes: [
+          {
+            Name: 'email',
+            Value: email
+          }
+        ]
       })
 
       setSlideDirection('right')
       setSignupStep('verify')
-      setSignupMessage('Check your email for the 6-digit verification code.')
+      const destination = signUpResponse?.CodeDeliveryDetails?.Destination
+      setSignupMessage(destination
+        ? `Verification code sent to ${destination}.`
+        : 'Check your email for the 6-digit verification code.')
     } catch (err) {
       setError(err?.message || 'Signup failed')
     } finally {
@@ -333,11 +342,14 @@ export default function AuthPage() {
     setSignupMessage('')
 
     try {
-      await callCognito('AWSCognitoIdentityProviderService.ResendConfirmationCode', {
+      const resendResponse = await callCognito('AWSCognitoIdentityProviderService.ResendConfirmationCode', {
         ClientId: COGNITO_CLIENT_ID,
         Username: signupEmail.trim()
       })
-      setSignupMessage('Verification code sent. Check your email.')
+      const destination = resendResponse?.CodeDeliveryDetails?.Destination
+      setSignupMessage(destination
+        ? `Verification code resent to ${destination}.`
+        : 'Verification code sent. Check your email.')
     } catch (err) {
       setError(err?.message || 'Failed to resend verification code')
     } finally {
