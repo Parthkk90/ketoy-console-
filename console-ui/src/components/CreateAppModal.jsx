@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAppStore } from '../store/appStore'
 import { appAPI } from '../services/api'
+import { isFreeTierApp } from '../services/ktwUtils'
 
 export default function CreateAppModal({ isOpen, onClose, onSuccess }) {
   const { addApp } = useAppStore()
@@ -14,6 +15,9 @@ export default function CreateAppModal({ isOpen, onClose, onSuccess }) {
     appName: '',
     description: ''
   })
+  const normalizedPackageName = String(formData.packageName || '').trim()
+  const showFreeTierHint = normalizedPackageName.length > 0 && isFreeTierApp(normalizedPackageName)
+  const showCustomTierHint = normalizedPackageName.length > 0 && !isFreeTierApp(normalizedPackageName)
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
@@ -96,6 +100,16 @@ export default function CreateAppModal({ isOpen, onClose, onSuccess }) {
                     <li>Examples: <span className="text-emerald-400">com.myapp</span>, <span className="text-emerald-400">io.github.project</span></li>
                   </ul>
                 </div>
+                {showFreeTierHint && (
+                  <p className="mt-2 text-xs text-blue-300">
+                    Free tier app - ready to use immediately. No domain verification needed.
+                  </p>
+                )}
+                {showCustomTierHint && (
+                  <p className="mt-2 text-xs text-gray-400">
+                    Custom bundle ID - you can optionally verify domain ownership after creation to lock this namespace.
+                  </p>
+                )}
               </div>
 
               <div>

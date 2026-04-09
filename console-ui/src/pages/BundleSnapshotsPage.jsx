@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { bundleAPI } from '../services/api'
-import { formatDateTime, mapApiErrorMessage } from '../services/ktwUtils'
+import { API_ERROR_MESSAGES, formatDateTime, mapApiErrorMessage, validateVersionCode } from '../services/ktwUtils'
 
 export default function BundleSnapshotsPage() {
   const { packageName } = useParams()
@@ -16,7 +16,7 @@ export default function BundleSnapshotsPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [promoting, setPromoting] = useState(false)
   const [showPromoteConfirm, setShowPromoteConfirm] = useState(false)
-  const [promoteBump, setPromoteBump] = useState('major')
+  const [promoteNewBundleVersion, setPromoteNewBundleVersion] = useState('')
   const [message, setMessage] = useState('')
 
   useEffect(() => {
@@ -68,24 +68,50 @@ export default function BundleSnapshotsPage() {
   const handlePromote = async () => {
     if (!selectedSnapshotId) return
 
+    const normalizedVersion = String(promoteNewBundleVersion || '').trim()
+    const validationError = validateVersionCode(normalizedVersion)
+    if (validationError) {
+      setError(validationError)
+      return
+    }
+
+    const screenIds = Object.keys(detail?.screens || {})
+    if (screenIds.length === 0) {
+      setError('No screens found in selected snapshot. Cannot promote.')
+      return
+    }
+
     setPromoting(true)
     setMessage('')
     setError('')
+    let shouldCloseDialog = true
 
     try {
-      const response = await bundleAPI.promote(packageName, selectedSnapshotId, promoteBump)
+      const response = await bundleAPI.promote(packageName, selectedSnapshotId, normalizedVersion, screenIds)
       const data = response.data?.data || {}
-      const bundleVersion = data.bundleVersion
-      const screenResults = Array.isArray(data.results) ? data.results.filter((item) => item?.ok).map((item) => `${item.screenId}:${item.version || '-'}`) : []
+      const promotedBundleVersion = data.newBundleVersion || data.bundleVersion || normalizedVersion
+      const screenResults = Array.isArray(data.results)
+        ? data.results.filter((item) => item?.ok).map((item) => `${item.screenId}:${item.newVersion || item.version || '-'}`)
+        : []
       const versionsLine = screenResults.length > 0 ? ` Screens: ${screenResults.join(', ')}` : ''
-      setMessage(bundleVersion ? `Snapshot promoted. Bundle version ${bundleVersion}.${versionsLine}` : 'Snapshot promoted successfully.')
+      setMessage(promotedBundleVersion ? `Snapshot promoted. Bundle version ${promotedBundleVersion}.${versionsLine}` : 'Snapshot promoted successfully.')
+      setPromoteNewBundleVersion('')
       await fetchDetail(selectedSnapshotId)
       await fetchList()
     } catch (err) {
-      setError(mapApiErrorMessage(err, 'Failed to promote snapshot'))
+      const status = err?.response?.status
+      const errorCode = err?.response?.data?.error?.code
+      if (status === 409 || errorCode === 'VERSION_TAKEN') {
+        shouldCloseDialog = false
+        setError(mapApiErrorMessage(err, API_ERROR_MESSAGES.VERSION_TAKEN))
+      } else {
+        setError(mapApiErrorMessage(err, 'Failed to promote snapshot'))
+      }
     } finally {
       setPromoting(false)
-      setShowPromoteConfirm(false)
+      if (shouldCloseDialog) {
+        setShowPromoteConfirm(false)
+      }
     }
   }
 
@@ -227,16 +253,17 @@ export default function BundleSnapshotsPage() {
               This will make all screens in the selected snapshot live simultaneously.
             </p>
             <div className="mb-5">
-              <label className="block text-xs text-gray-400 mb-1">Version bump</label>
-              <select
-                value={promoteBump}
-                onChange={(event) => setPromoteBump(event.target.value)}
-                className="w-full bg-[#0f1c2e] border border-gray-700 rounded-md px-3 py-2 text-sm text-white"
-              >
-                <option value="major">Major</option>
-                <option value="minor">Minor</option>
-                <option value="patch">Patch</option>
-              </select>
+              <label className="block text-xs text-gray-400 mb-1">New Bundle Version</label>
+              <input
+                type="text"
+                value={promoteNewBundleVersion}
+                onChange={(event) => {
+                  setPromoteNewBundleVersion(event.target.value)
+                  setError('')
+                }}
+                placeholder="e.g. 2.0.0"
+                className="w-full bg-[#0f1c2e] border border-gray-700 rounded-md px-3 py-2 text-sm text-white font-mono"
+              />
             </div>
             <div className="flex gap-3">
               <button
