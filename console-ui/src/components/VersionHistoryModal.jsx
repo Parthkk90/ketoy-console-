@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { screenAPI } from '../services/api'
-import { mapApiErrorMessage } from '../services/ktwUtils'
+import { mapApiErrorMessage, validateVersionCode, API_ERROR_MESSAGES } from '../services/ktwUtils'
 
 const formatRelativeTime = (dateString) => {
   if (!dateString) return 'just now'
@@ -34,7 +34,7 @@ const formatFileSize = (bytes) => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export default function VersionHistoryModal({ isOpen, onClose, packageName, screenName, onLoadVersion }) {
+export default function VersionHistoryModal({ isOpen, onClose, bundleId, packageName, screenName, onLoadVersion }) {
   const [versions, setVersions] = useState([])
   const [currentVersion, setCurrentVersion] = useState('')
   const [loading, setLoading] = useState(true)
@@ -45,6 +45,8 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
   const [loadingVersion, setLoadingVersion] = useState('')
   const [rolling, setRolling] = useState(false)
   const [pendingRollbackVersion, setPendingRollbackVersion] = useState('')
+  const [rollbackNewVersion, setRollbackNewVersion] = useState('')
+  const [rollbackErrorMessage, setRollbackErrorMessage] = useState('')
 
   useEffect(() => {
     if (isOpen) {
@@ -129,33 +131,56 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
     setFetchError(null)
     setSuccessMessage('')
     setPendingRollbackVersion('')
+    setRollbackNewVersion('')
+    setRollbackErrorMessage('')
     onClose()
   }
 
   const handleRollback = async () => {
     if (!pendingRollbackVersion) return
 
+    // Validate the new version before calling API
+    const validationError = validateVersionCode(rollbackNewVersion)
+    if (validationError) {
+      setRollbackErrorMessage(validationError)
+      return
+    }
+
     setRolling(true)
-    setFetchError(null)
+    setRollbackErrorMessage(null)
 
     try {
-      const response = await screenAPI.rollback(packageName, screenName, pendingRollbackVersion)
+      const effectiveBundleId = bundleId || packageName
+      const response = await screenAPI.rollback(effectiveBundleId, screenName, pendingRollbackVersion, rollbackNewVersion)
       const data = response.data?.data || {}
-      const rolledBackFrom = data.rolledBackFrom || pendingRollbackVersion
-      const newVersion = data.newVersion || '-'
-      setSuccessMessage(`Rolled back from ${rolledBackFrom} -> new version is ${newVersion}`)
+      const newVersionPublished = data.newVersion || rollbackNewVersion
+      setSuccessMessage(`Version ${pendingRollbackVersion} restored and published as ${newVersionPublished}`)
       await fetchVersions()
       setSelectedVersion('')
       setPendingRollbackVersion('')
+      setRollbackNewVersion('')
+      setRollbackErrorMessage('')
       if (onLoadVersion) {
         onLoadVersion()
       }
     } catch (err) {
       const status = err?.response?.status
-      if (status === 404) {
+      const errorCode = err?.response?.data?.error?.code
+
+      if (status === 409 || errorCode === 'CONFLICT' || errorCode === 'VERSION_TAKEN') {
+        // Keep overlay open on 409 error, show inline error message
+        const errorMessage = mapApiErrorMessage(err, API_ERROR_MESSAGES.VERSION_TAKEN)
+        setRollbackErrorMessage(errorMessage)
+      } else if (status === 404) {
         setFetchError('Version history is not available in this environment.')
+        setPendingRollbackVersion('')
+        setRollbackNewVersion('')
+        setRollbackErrorMessage('')
       } else {
         setFetchError(mapApiErrorMessage(err, 'Failed to roll back the selected version.'))
+        setPendingRollbackVersion('')
+        setRollbackNewVersion('')
+        setRollbackErrorMessage('')
       }
     } finally {
       setRolling(false)
@@ -320,10 +345,31 @@ export default function VersionHistoryModal({ isOpen, onClose, packageName, scre
             <p className="text-sm text-gray-300 mb-5">
               Rollback to <span className="font-mono text-white">{pendingRollbackVersion}</span>? This will create a new latest version with this content.
             </p>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-300 mb-2">Publish restored content as</label>
+              <input
+                type="text"
+                value={rollbackNewVersion}
+                onChange={(e) => {
+                  setRollbackNewVersion(e.target.value)
+                  setRollbackErrorMessage('')
+                }}
+                placeholder="e.g. 1.0.2"
+                disabled={rolling}
+                className="w-full px-3 py-2 bg-[#0f1c2e] border border-gray-700 rounded-lg text-white placeholder-gray-500 font-mono text-sm disabled:opacity-60"
+              />
+              {rollbackErrorMessage && (
+                <p className="mt-2 text-sm text-red-400">{rollbackErrorMessage}</p>
+              )}
+            </div>
             <div className="flex gap-3">
               <button
                 type="button"
-                onClick={() => setPendingRollbackVersion('')}
+                onClick={() => {
+                  setPendingRollbackVersion('')
+                  setRollbackNewVersion('')
+                  setRollbackErrorMessage('')
+                }}
                 disabled={rolling}
                 className="flex-1 px-4 py-2 bg-[#0f1c2e] hover:bg-[#152235] text-white rounded-lg transition-colors disabled:opacity-60"
               >
