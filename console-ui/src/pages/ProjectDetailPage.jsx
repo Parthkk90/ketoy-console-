@@ -6,7 +6,7 @@ import { appAPI, bundleAPI, screenAPI } from '../services/api'
 import BundleSnapshotModal from '../components/BundleSnapshotModal'
 import CreateScreenModal from '../components/CreateScreenModal'
 import VersionHistoryModal from '../components/VersionHistoryModal'
-import { fileToBase64, formatDateTime, formatKtwSizeKb, mapApiErrorMessage, prepareKtwUploadBinary, validateKtwFile } from '../services/ktwUtils'
+import { API_ERROR_MESSAGES, fileToBase64, formatDateTime, formatKtwSizeKb, isFreeTierApp, mapApiErrorMessage, prepareKtwUploadBinary, validateKtwFile, validateVersionCode } from '../services/ktwUtils'
 
 const DetailStat = ({ label, value, accent }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -41,15 +41,21 @@ export default function ProjectDetailPage() {
   const [search, setSearch] = useState('')
   const [historyScreenId, setHistoryScreenId] = useState('')
   const [bundleFiles, setBundleFiles] = useState([])
-  const [bundleBump, setBundleBump] = useState('patch')
+  const [bundleVersion, setBundleVersion] = useState('')
   const [bundleUploadError, setBundleUploadError] = useState('')
   const [bundleUploadMessage, setBundleUploadMessage] = useState('')
   const [bundleUploadResults, setBundleUploadResults] = useState([])
   const [bundleUploading, setBundleUploading] = useState(false)
-  const [promoteBump, setPromoteBump] = useState('major')
+  const [promoteNewVersion, setPromoteNewVersion] = useState('')
   const [screenPendingDelete, setScreenPendingDelete] = useState('')
   const [screenDeleting, setScreenDeleting] = useState(false)
   const [bundleUploadResult] = useState(location.state?.bundleUploadResult || null)
+  const [verificationData, setVerificationData] = useState(null)
+  const [verificationLoading, setVerificationLoading] = useState(false)
+  const [checkingVerification, setCheckingVerification] = useState(false)
+  const [verificationReason, setVerificationReason] = useState('')
+  const [verificationError, setVerificationError] = useState('')
+  const [verificationToast, setVerificationToast] = useState('')
 
   const bundleUploadData = (() => {
     const payload = bundleUploadResult?.data?.data || bundleUploadResult?.data || bundleUploadResult
@@ -111,8 +117,77 @@ export default function ProjectDetailPage() {
     try {
       const response = await appAPI.getDetails(packageName)
       const appData = response.data?.data?.app || response.data?.data || response.data
+      setCurrentApp(appData)
     } catch (err) {
       setError(mapApiErrorMessage(err, 'Failed to fetch app details'))
+    }
+  }
+
+  const showVerificationToast = (message) => {
+    setVerificationToast(message)
+    window.setTimeout(() => setVerificationToast(''), 2500)
+  }
+
+  const handleCopyToClipboard = async (value) => {
+    if (!value) return
+    try {
+      await navigator.clipboard.writeText(value)
+      showVerificationToast('Copied to clipboard')
+    } catch {
+      setVerificationError('Failed to copy. Please copy manually.')
+    }
+  }
+
+  const handleRequestVerification = async () => {
+    setVerificationLoading(true)
+    setVerificationError('')
+    setVerificationReason('')
+
+    try {
+      const response = await appAPI.requestVerification(packageName)
+      const payload = response.data?.data || {}
+      setVerificationData(payload)
+    } catch (err) {
+      setVerificationData(null)
+      setVerificationError(mapApiErrorMessage(err, 'Failed to request DNS verification token'))
+    } finally {
+      setVerificationLoading(false)
+    }
+  }
+
+  const handleCheckVerification = async () => {
+    setCheckingVerification(true)
+    setVerificationError('')
+
+    try {
+      const response = await appAPI.checkVerification(packageName)
+      const payload = response.data?.data || {}
+
+      if (payload.verified) {
+        const verifiedDomain = payload.dnsTarget || verificationData?.txtRecord?.host || currentApp?.verifiedDomain || ''
+        setCurrentApp({
+          ...(currentApp || {}),
+          domainVerified: true,
+          verifiedDomain,
+          verifiedAt: payload.verifiedAt || currentApp?.verifiedAt
+        })
+        setVerificationData(null)
+        setVerificationReason('')
+        showVerificationToast('Namespace locked to your account')
+        return
+      }
+
+      setVerificationReason(payload.reason || 'DNS record not found yet. Please try again.')
+    } catch (err) {
+      const errorCode = err?.response?.data?.error?.code
+      setVerificationError(mapApiErrorMessage(err, 'Failed to check DNS verification'))
+
+      if (errorCode === 'NO_PENDING_VERIFICATION' || errorCode === 'TOKEN_EXPIRED') {
+        setVerificationData(null)
+        setVerificationReason('')
+      }
+    } finally {
+      setCheckingVerification(false)
     }
   }
 
@@ -228,22 +303,47 @@ export default function ProjectDetailPage() {
   }
 
   const handlePromoteSnapshot = async (snapshot) => {
+    const normalizedVersion = String(promoteNewVersion || '').trim()
+    const validationError = validateVersionCode(normalizedVersion)
+    if (validationError) {
+      setPromoteError(validationError)
+      return
+    }
+
     setPromotingSnapshotId(snapshot.snapshotId)
     setPromoteError('')
     setPromoteMessage('')
 
     try {
-      const response = await bundleAPI.promote(packageName, snapshot.snapshotId, promoteBump)
+      const detailResponse = await bundleAPI.getDetails(packageName, snapshot.snapshotId)
+      const detail = detailResponse.data?.data || {}
+      const screenIds = Object.keys(detail.screens || {})
+
+      if (screenIds.length === 0) {
+        setPromoteError('No screens found in this snapshot. Cannot promote.')
+        return
+      }
+
+      const response = await bundleAPI.promote(packageName, snapshot.snapshotId, normalizedVersion, screenIds)
       const data = response.data?.data || {}
-      const bundleVersion = data.bundleVersion
-      const screenResults = Array.isArray(data.results) ? data.results.filter((item) => item?.ok).map((item) => `${item.screenId}:${item.version || '-'}`) : []
+      const promotedBundleVersion = data.newBundleVersion || data.bundleVersion || normalizedVersion
+      const screenResults = Array.isArray(data.results)
+        ? data.results.filter((item) => item?.ok).map((item) => `${item.screenId}:${item.newVersion || item.version || '-'}`)
+        : []
       const versionsLine = screenResults.length > 0 ? ` Screens: ${screenResults.join(', ')}` : ''
-      setPromoteMessage(bundleVersion ? `Promoted successfully. Bundle version ${bundleVersion}.${versionsLine}` : 'Promoted successfully.')
+      setPromoteMessage(promotedBundleVersion ? `Promoted successfully. Bundle version ${promotedBundleVersion}.${versionsLine}` : 'Promoted successfully.')
       setConfirmPromoteSnapshotId('')
+      setPromoteNewVersion('')
       await fetchScreens()
       await fetchSnapshots()
     } catch (err) {
-      setPromoteError(mapApiErrorMessage(err, 'Failed to promote snapshot'))
+      const status = err?.response?.status
+      const errorCode = err?.response?.data?.error?.code
+      if (status === 409 || errorCode === 'VERSION_TAKEN') {
+        setPromoteError(mapApiErrorMessage(err, API_ERROR_MESSAGES.VERSION_TAKEN))
+      } else {
+        setPromoteError(mapApiErrorMessage(err, 'Failed to promote snapshot'))
+      }
     } finally {
       setPromotingSnapshotId('')
     }
@@ -270,6 +370,13 @@ export default function ProjectDetailPage() {
       return
     }
 
+    const normalizedBundleVersion = String(bundleVersion || '').trim()
+    const versionValidationError = validateVersionCode(normalizedBundleVersion)
+    if (versionValidationError) {
+      setBundleUploadError(versionValidationError)
+      return
+    }
+
     setBundleUploading(true)
     setBundleUploadMessage('')
     setBundleUploadResults([])
@@ -293,13 +400,13 @@ export default function ProjectDetailPage() {
         payload.push({ screenId, ktw })
       }
 
-      const response = await screenAPI.uploadBundleKtw(packageName, payload, bundleBump)
+      const response = await screenAPI.uploadBundleKtw(packageName, payload, normalizedBundleVersion)
       const data = response.data?.data || {}
       const snapshotId = data.snapshotId
-      const bundleVersion = data.bundleVersion
+      const uploadedBundleVersion = data.bundleVersion || normalizedBundleVersion
       setBundleUploadResults(Array.isArray(data.results) ? data.results : [])
-      setBundleUploadMessage(bundleVersion
-        ? `Bundle uploaded successfully. Bundle version ${bundleVersion}${snapshotId ? ` · Snapshot ${snapshotId}` : ''}`
+      setBundleUploadMessage(uploadedBundleVersion
+        ? `Bundle uploaded successfully. Bundle version ${uploadedBundleVersion}${snapshotId ? ` · Snapshot ${snapshotId}` : ''}`
         : 'Bundle uploaded successfully.')
 
       await fetchScreens()
@@ -324,6 +431,8 @@ export default function ProjectDetailPage() {
 
   const totalScreens = screens.length
   const totalSnapshots = snapshots.length
+  const appBundleId = currentApp?.bundleId || currentApp?.packageName || packageName
+  const freeTierApp = isFreeTierApp(appBundleId)
   const latestActivity = screens.length > 0
     ? timeAgo(screens[0]?.updatedAt || screens[0]?.createdAt)
     : 'No updates yet'
@@ -424,6 +533,119 @@ export default function ProjectDetailPage() {
         <div style={{ width: 1, background: 'rgba(255,255,255,0.08)' }} />
         <DetailStat label="Last Activity" value={latestActivity} />
       </div>
+
+      <section className="pd-fade pd-fade-2" style={{ marginBottom: 22 }}>
+        <div className="ketoy-card-surface-soft rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <h2 style={{ color: '#fff', fontSize: 16, fontWeight: 600, margin: 0 }}>Verify Domain</h2>
+              <p style={{ color: 'rgba(255,255,255,0.55)', margin: '4px 0 0', fontSize: 13 }}>
+                Lock this namespace to your account using DNS TXT verification.
+              </p>
+            </div>
+
+            {freeTierApp ? (
+              <span style={{ padding: '5px 10px', borderRadius: 999, background: 'rgba(148,163,184,0.15)', border: '1px solid rgba(148,163,184,0.35)', color: '#cbd5e1', fontSize: 12, fontWeight: 600 }}>
+                Free tier - dev.ketoy namespace
+              </span>
+            ) : currentApp?.domainVerified ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ padding: '5px 10px', borderRadius: 999, background: 'rgba(22,163,74,0.2)', border: '1px solid rgba(22,163,74,0.5)', color: '#86efac', fontSize: 12, fontWeight: 600 }}>
+                  Namespace Verified
+                </span>
+                <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, fontFamily: 'monospace' }}>
+                  {currentApp?.verifiedDomain || 'Verified'}
+                </span>
+              </div>
+            ) : (
+              !verificationData && (
+                <button
+                  type="button"
+                  onClick={handleRequestVerification}
+                  disabled={verificationLoading}
+                  className="btn-ketoy btn-ketoy-primary"
+                >
+                  {verificationLoading ? 'Requesting...' : 'Verify Domain'}
+                </button>
+              )
+            )}
+          </div>
+
+          {freeTierApp && (
+            <p style={{ marginTop: 12, color: 'rgba(255,255,255,0.68)', fontSize: 13 }}>
+              Screens can be uploaded directly. Domain verification is not available for dev.ketoy apps.
+            </p>
+          )}
+
+          {!freeTierApp && !currentApp?.domainVerified && !verificationData && (
+            <p style={{ marginTop: 12, color: 'rgba(255,255,255,0.58)', fontSize: 12 }}>
+              Optional - you can upload screens without verifying. Verification permanently locks this namespace to your account.
+            </p>
+          )}
+
+          {!freeTierApp && verificationError && (
+            <div className="mt-3 p-3 rounded-lg bg-red-500/10 border border-red-500/40 text-red-300 text-sm">
+              {verificationError}
+            </div>
+          )}
+
+          {!freeTierApp && !currentApp?.domainVerified && verificationData && (
+            <div style={{ marginTop: 14, border: '1px solid rgba(59,130,246,0.35)', background: 'rgba(59,130,246,0.08)', borderRadius: 12, padding: 14 }}>
+              <p style={{ margin: 0, color: '#dbeafe', fontSize: 13 }}>Add a TXT record to your DNS provider:</p>
+
+              <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', minWidth: 48 }}>Host:</span>
+                  <span style={{ fontFamily: 'monospace', color: '#fff', fontSize: 12 }}>{verificationData?.txtRecord?.host || '-'}</span>
+                  <button type="button" onClick={() => handleCopyToClipboard(verificationData?.txtRecord?.host)} className="btn-ketoy btn-ketoy-secondary !text-xs !px-2 !py-1">Copy</button>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', minWidth: 48 }}>Type:</span>
+                  <span style={{ fontFamily: 'monospace', color: '#fff', fontSize: 12 }}>TXT</span>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', minWidth: 48 }}>Value:</span>
+                  <span style={{ fontFamily: 'monospace', color: '#fff', fontSize: 12 }}>{verificationData?.txtRecord?.value || '-'}</span>
+                  <button type="button" onClick={() => handleCopyToClipboard(verificationData?.txtRecord?.value)} className="btn-ketoy btn-ketoy-secondary !text-xs !px-2 !py-1">Copy</button>
+                </div>
+              </div>
+
+              <p style={{ margin: '10px 0 0', color: 'rgba(219,234,254,0.8)', fontSize: 12 }}>
+                Token expires at {formatDateTime(verificationData?.expiresAt)}
+              </p>
+
+              {verificationReason && (
+                <div className="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/40 text-amber-200 text-sm">
+                  {verificationReason}
+                </div>
+              )}
+
+              <div style={{ marginTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={handleCheckVerification}
+                  disabled={checkingVerification}
+                  className="btn-ketoy btn-ketoy-primary"
+                >
+                  {checkingVerification ? 'Checking...' : 'Check Verification'}
+                </button>
+                {verificationReason && (
+                  <button
+                    type="button"
+                    onClick={handleCheckVerification}
+                    disabled={checkingVerification}
+                    className="btn-ketoy btn-ketoy-secondary"
+                  >
+                    Try Again
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
 
       <div className="pd-fade pd-fade-3" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
         <div style={{ position: 'relative' }}>
@@ -647,16 +869,17 @@ export default function ProjectDetailPage() {
                 className="sr-only"
               />
               <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-500 whitespace-nowrap">Version bump</label>
-                <select
-                  value={bundleBump}
-                  onChange={(event) => setBundleBump(event.target.value)}
-                  className="bg-[#0f1c2e] border border-gray-700 rounded-md px-2.5 py-1.5 text-sm text-white"
-                >
-                  <option value="patch">Patch</option>
-                  <option value="minor">Minor</option>
-                  <option value="major">Major</option>
-                </select>
+                <label className="text-xs text-gray-500 whitespace-nowrap">Bundle Version</label>
+                <input
+                  type="text"
+                  value={bundleVersion}
+                  onChange={(event) => {
+                    setBundleVersion(event.target.value)
+                    setBundleUploadError('')
+                  }}
+                  placeholder="e.g. 1.0.0"
+                  className="bg-[#0f1c2e] border border-gray-700 rounded-md px-2.5 py-1.5 text-sm text-white font-mono"
+                />
               </div>
               <button
                 type="button"
@@ -761,6 +984,7 @@ export default function ProjectDetailPage() {
                             onClick={() => {
                               setPromoteError('')
                               setPromoteMessage('')
+                              setPromoteNewVersion('')
                               setConfirmPromoteSnapshotId((prev) => prev === snapshot.snapshotId ? '' : snapshot.snapshotId)
                             }}
                             className="btn-ketoy btn-ketoy-amber !px-3 !py-1.5 !text-xs"
@@ -775,17 +999,18 @@ export default function ProjectDetailPage() {
                           <p className="text-sm text-amber-200">
                             Promote Version {versionLabel}? This will overwrite all {snapshot.screenCount || 0} screens with this uploaded bundle version. Current content will be preserved in version history.
                           </p>
-                          <div className="mt-3 max-w-[180px]">
-                            <label className="block text-xs text-amber-100/80 mb-1">Version bump</label>
-                            <select
-                              value={promoteBump}
-                              onChange={(event) => setPromoteBump(event.target.value)}
-                              className="w-full bg-[#0f1c2e] border border-amber-500/40 rounded-md px-2.5 py-1.5 text-xs text-white"
-                            >
-                              <option value="major">Major</option>
-                              <option value="minor">Minor</option>
-                              <option value="patch">Patch</option>
-                            </select>
+                          <div className="mt-3 max-w-[220px]">
+                            <label className="block text-xs text-amber-100/80 mb-1">New Bundle Version</label>
+                            <input
+                              type="text"
+                              value={promoteNewVersion}
+                              onChange={(event) => {
+                                setPromoteNewVersion(event.target.value)
+                                setPromoteError('')
+                              }}
+                              placeholder="e.g. 2.0.0"
+                              className="w-full bg-[#0f1c2e] border border-amber-500/40 rounded-md px-2.5 py-1.5 text-xs text-white font-mono"
+                            />
                           </div>
                           <div className="mt-3 flex gap-2">
                             <button
@@ -852,6 +1077,7 @@ export default function ProjectDetailPage() {
         <VersionHistoryModal
           isOpen={Boolean(historyScreenId)}
           onClose={() => setHistoryScreenId('')}
+          bundleId={packageName}
           packageName={packageName}
           screenName={historyScreenId}
           onLoadVersion={fetchScreens}
@@ -913,6 +1139,12 @@ export default function ProjectDetailPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {verificationToast && (
+        <div style={{ position: 'fixed', right: 20, bottom: 20, zIndex: 60, padding: '10px 14px', borderRadius: 10, border: '1px solid rgba(34,197,94,0.5)', background: 'rgba(22,163,74,0.2)', color: '#dcfce7', fontSize: 13, fontWeight: 600 }}>
+          {verificationToast}
         </div>
       )}
       </div>

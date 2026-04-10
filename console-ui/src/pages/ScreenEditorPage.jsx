@@ -323,6 +323,7 @@ export default function ScreenEditorPage() {
       <VersionHistoryModal
         isOpen={showVersionHistory}
         onClose={() => setShowVersionHistory(false)}
+        bundleId={packageName}
         packageName={packageName}
         screenName={screenName}
         onLoadVersion={fetchScreenDetails}
