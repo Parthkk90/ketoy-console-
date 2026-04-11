@@ -8,6 +8,8 @@ import {
 const TOKEN_KEY = 'developerToken'
 const DEVELOPER_KEY = 'developer'
 const USERNAME_KEY = 'ketoy_username'
+const API_KEY_STORAGE = 'ketoy_api_key'
+const API_KEY_LEGACY_STORAGE = 'ketoy_console_api_key'
 
 export const getIdToken = () => getDeveloperTokenFromCookie() || localStorage.getItem(TOKEN_KEY)
 
@@ -27,6 +29,8 @@ const clearAuthStorage = () => {
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(DEVELOPER_KEY)
   localStorage.removeItem(USERNAME_KEY)
+  localStorage.removeItem(API_KEY_STORAGE)
+  localStorage.removeItem(API_KEY_LEGACY_STORAGE)
 }
 
 export const useAuthStore = create((set) => {
@@ -51,6 +55,9 @@ export const useAuthStore = create((set) => {
     
     updateDeveloper: (developer) => {
       localStorage.setItem(DEVELOPER_KEY, JSON.stringify(developer))
+      if (developer?.username) {
+        localStorage.setItem(USERNAME_KEY, developer.username)
+      }
       set({ developer })
     },
     
