@@ -6,6 +6,8 @@ const BASE = import.meta.env.DEV
   ? '/__api'
   : import.meta.env.VITE_API_BASE_URL || 'https://api.ketoy.dev'
 
+const API_KEY_STORAGE = 'ketoy_api_key'
+
 const normalizeApp = (app) => {
   if (!app || typeof app !== 'object') return app
   return {
@@ -90,10 +92,31 @@ const publicApi = axios.create({
 // Request interceptor to add Cognito ID token for protected APIs.
 api.interceptors.request.use(
   (config) => {
+    const storedApiKey = typeof window !== 'undefined'
+      ? String(localStorage.getItem(API_KEY_STORAGE) || '').trim()
+      : ''
     const idToken = getIdToken()
-    if (idToken) {
+
+    if (config?.forceBearerAuth) {
+      if (config.headers) {
+        delete config.headers['X-Api-Key']
+        delete config.headers['x-api-key']
+      }
+      if (idToken) {
+        config.headers.Authorization = `Bearer ${idToken}`
+      }
+      return config
+    }
+
+    if (config?.useApiKeyAuth && storedApiKey) {
+      if (config.headers) {
+        delete config.headers.Authorization
+      }
+      config.headers['X-Api-Key'] = storedApiKey
+    } else if (idToken) {
       config.headers.Authorization = `Bearer ${idToken}`
     }
+
     return config
   },
   (error) => {
@@ -126,8 +149,10 @@ api.interceptors.response.use(
     const status = error.response?.status
     const errorCode = error.response?.data?.error?.code
     const responseMessage = error.response?.data?.error?.message || error.response?.data?.message
+    const headers = error.config?.headers || {}
+    const hasApiKeyHeader = Boolean(headers['X-Api-Key'] || headers['x-api-key'])
 
-    if (status === 401) {
+    if (status === 401 && !hasApiKeyHeader) {
       useAuthStore.getState().logout()
     }
 
@@ -242,6 +267,25 @@ export const bundleAPI = {
       screens: screenIds.map((screenId) => ({ screenId, newVersion: newBundleVersion }))
     })
   }
+}
+
+export const keyAPI = {
+  create: (label) => api.post('/keys', { label }, { forceBearerAuth: true }),
+  list: (apiKey) => api.get('/keys', {
+    headers: apiKey ? { 'X-Api-Key': apiKey } : undefined
+  }),
+  revoke: (keyId, apiKey) => api.delete(`/keys/${encodeURIComponent(keyId)}`, {
+    headers: apiKey ? { 'X-Api-Key': apiKey } : undefined
+  })
+}
+
+export const createApiKey = (label) => keyAPI.create(label)
+export const listApiKeys = () => api.get('/keys', { useApiKeyAuth: true })
+export const revokeApiKey = (keyId) => api.delete(`/keys/${encodeURIComponent(keyId)}`, { useApiKeyAuth: true })
+
+export const profileAPI = {
+  getMyProfile: () => api.get('/profile'),
+  setupProfile: (data) => api.post('/profile', data)
 }
 
 export default api
