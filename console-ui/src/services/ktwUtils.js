@@ -15,7 +15,14 @@ const API_ERROR_MESSAGES = {
   TOKEN_EXPIRED: 'Verification token expired — request a new one',
   INVALID_BUNDLE_ID: 'Bundle ID needs at least 3 segments to verify (e.g. com.example.app)',
   FREE_TIER_NOT_ELIGIBLE: 'Domain verification is not available for free-tier apps',
-  INVALID_PARAMS: 'Invalid parameter value'
+  INVALID_PARAMS: 'Invalid parameter value',
+  INVALID_LABEL: 'API key label must be between 1 and 64 characters',
+  INVALID_USERNAME: 'Username must be lowercase letters, numbers, or hyphens, min 2 characters',
+  NAMESPACE_NOT_VERIFIED: 'Verify your namespace before uploading screens',
+  PROFILE_INCOMPLETE: 'Complete your profile before creating an app',
+  INVALID_NAME: 'Name must be between 1 and 100 characters',
+  INVALID_PURPOSE: 'Purpose must be: personal_testing, company_work, or personal_production',
+  INVALID_USER_BASE: 'User base must be one of: lt_100, lt_1k, lt_10k, lt_100k, lt_500k, 1m_plus'
 }
 
 const readFilePrefix = async (file, length) => {
