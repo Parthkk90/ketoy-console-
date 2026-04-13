@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '../store/appStore'
 import { useScreenStore } from '../store/screenStore'
-import { appAPI, bundleAPI, screenAPI } from '../services/api'
+import { appAPI, bundleAPI, screenAPI, keyAPI } from '../services/api'
 import BundleSnapshotModal from '../components/BundleSnapshotModal'
 import CreateScreenModal from '../components/CreateScreenModal'
 import VersionHistoryModal from '../components/VersionHistoryModal'
@@ -56,6 +56,13 @@ export default function ProjectDetailPage() {
   const [verificationReason, setVerificationReason] = useState('')
   const [verificationError, setVerificationError] = useState('')
   const [verificationToast, setVerificationToast] = useState('')
+  const [apiKeys, setApiKeys] = useState([])
+  const [apiKeysLoading, setApiKeysLoading] = useState(false)
+  const [apiKeysError, setApiKeysError] = useState('')
+  const [apiKeyLabel, setApiKeyLabel] = useState('')
+  const [creatingApiKey, setCreatingApiKey] = useState(false)
+  const [revokingApiKeyId, setRevokingApiKeyId] = useState('')
+  const [newDeveloperApiKey, setNewDeveloperApiKey] = useState('')
 
   const bundleUploadData = (() => {
     const payload = bundleUploadResult?.data?.data || bundleUploadResult?.data || bundleUploadResult
@@ -188,6 +195,62 @@ export default function ProjectDetailPage() {
       }
     } finally {
       setCheckingVerification(false)
+    }
+  }
+
+  const getApiKeyPrefix = () => `${appBundleId}::`
+
+  const loadApiKeys = async () => {
+    setApiKeysLoading(true)
+    setApiKeysError('')
+    try {
+      const response = await keyAPI.list()
+      const payload = response.data?.data || response.data || {}
+      const items = Array.isArray(payload) ? payload : Array.isArray(payload.items) ? payload.items : []
+      const prefix = getApiKeyPrefix()
+      const appScoped = items.filter((key) => String(key?.label || '').startsWith(prefix))
+      setApiKeys(appScoped)
+    } catch (err) {
+      setApiKeysError(mapApiErrorMessage(err, 'Failed to load API keys'))
+      setApiKeys([])
+    } finally {
+      setApiKeysLoading(false)
+    }
+  }
+
+  const handleCreateApiKey = async () => {
+    const normalizedLabel = String(apiKeyLabel || '').trim()
+    const scopedLabel = `${getApiKeyPrefix()}${normalizedLabel || 'default'}`
+    setCreatingApiKey(true)
+    setApiKeysError('')
+
+    try {
+      const response = await keyAPI.create(scopedLabel)
+      const payload = response.data?.data || response.data || {}
+      setNewDeveloperApiKey(payload.key || '')
+      setApiKeyLabel('')
+      await loadApiKeys()
+    } catch (err) {
+      setApiKeysError(mapApiErrorMessage(err, 'Failed to create API key'))
+    } finally {
+      setCreatingApiKey(false)
+    }
+  }
+
+  const handleRevokeApiKey = async (keyId) => {
+    if (!keyId) return
+    const confirmed = window.confirm('Revoke this API key? This cannot be undone.')
+    if (!confirmed) return
+
+    setRevokingApiKeyId(keyId)
+    setApiKeysError('')
+    try {
+      await keyAPI.revoke(keyId)
+      setApiKeys((prev) => prev.filter((key) => (key.keyId || key.id || key._id) !== keyId))
+    } catch (err) {
+      setApiKeysError(mapApiErrorMessage(err, 'Failed to revoke API key'))
+    } finally {
+      setRevokingApiKeyId('')
     }
   }
 
@@ -431,6 +494,7 @@ export default function ProjectDetailPage() {
 
   const totalScreens = screens.length
   const totalSnapshots = snapshots.length
+  const appRef = currentApp?.appId || currentApp?.id || currentApp?.packageName || currentApp?.bundleId || packageName
   const appBundleId = currentApp?.bundleId || currentApp?.packageName || packageName
   const freeTierApp = isFreeTierApp(appBundleId)
   const latestActivity = screens.length > 0
@@ -442,6 +506,11 @@ export default function ProjectDetailPage() {
     const query = search.toLowerCase()
     return name.includes(query) || id.includes(query)
   })
+
+  useEffect(() => {
+    if (!appBundleId) return
+    loadApiKeys()
+  }, [appBundleId])
 
   return (
     <>
@@ -496,6 +565,21 @@ export default function ProjectDetailPage() {
           <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)', marginTop: 6, marginBottom: 0, fontFamily: 'monospace' }}>
             {currentApp?.packageName || packageName}
           </p>
+          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', margin: 0, fontFamily: 'monospace' }}>
+              App Resource ID: {currentApp?.appId || currentApp?.id || currentApp?._id || packageName}
+            </p>
+            <button
+              type="button"
+              onClick={() => handleCopyToClipboard(currentApp?.appId || currentApp?.id || currentApp?._id || packageName)}
+              className="btn-ketoy btn-ketoy-secondary !px-2 !py-1 !text-xs"
+            >
+              Copy
+            </button>
+          </div>
+          <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 4, marginBottom: 0 }}>
+            Use Developer API Key in X-Api-Key for auth. App Resource ID is only for route paths.
+          </p>
           {currentApp?.description && (
             <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.38)', marginTop: 8, marginBottom: 0, maxWidth: 560 }}>
               {currentApp.description}
@@ -538,9 +622,9 @@ export default function ProjectDetailPage() {
         <div className="ketoy-card-surface-soft rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <div>
-              <h2 style={{ color: '#fff', fontSize: 16, fontWeight: 600, margin: 0 }}>Verify Domain</h2>
+              <h2 style={{ color: '#fff', fontSize: 16, fontWeight: 600, margin: 0 }}>Namespace</h2>
               <p style={{ color: 'rgba(255,255,255,0.55)', margin: '4px 0 0', fontSize: 13 }}>
-                Lock this namespace to your account using DNS TXT verification.
+                Namespace ownership and verification status.
               </p>
             </div>
 
@@ -558,16 +642,29 @@ export default function ProjectDetailPage() {
                 </span>
               </div>
             ) : (
-              !verificationData && (
-                <button
-                  type="button"
-                  onClick={handleRequestVerification}
-                  disabled={verificationLoading}
-                  className="btn-ketoy btn-ketoy-primary"
-                >
-                  {verificationLoading ? 'Requesting...' : 'Verify Domain'}
-                </button>
-              )
+              <button
+                type="button"
+                onClick={() => navigate(`/apps/${encodeURIComponent(appRef)}/verify`)}
+                className="btn-ketoy btn-ketoy-primary"
+              >
+                Start Verification
+              </button>
+            )}
+          </div>
+
+          <div style={{ marginTop: 12, display: 'grid', gap: 6 }}>
+            <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.62)', margin: 0 }}>
+              <span style={{ color: 'rgba(255,255,255,0.45)' }}>bundleId:</span> <span style={{ fontFamily: 'monospace', color: '#fff' }}>{appBundleId}</span>
+            </p>
+            {currentApp?.domainVerified && (
+              <>
+                <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.62)', margin: 0 }}>
+                  <span style={{ color: 'rgba(255,255,255,0.45)' }}>dnsTarget:</span> <span style={{ fontFamily: 'monospace', color: '#fff' }}>{currentApp?.dnsTarget || currentApp?.verifiedDomain || '-'}</span>
+                </p>
+                <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.62)', margin: 0 }}>
+                  <span style={{ color: 'rgba(255,255,255,0.45)' }}>verifiedAt:</span> <span style={{ color: '#fff' }}>{formatDateTime(currentApp?.verifiedAt)}</span>
+                </p>
+              </>
             )}
           </div>
 
@@ -578,72 +675,128 @@ export default function ProjectDetailPage() {
           )}
 
           {!freeTierApp && !currentApp?.domainVerified && !verificationData && (
-            <p style={{ marginTop: 12, color: 'rgba(255,255,255,0.58)', fontSize: 12 }}>
-              Optional - you can upload screens without verifying. Verification permanently locks this namespace to your account.
-            </p>
-          )}
-
-          {!freeTierApp && verificationError && (
-            <div className="mt-3 p-3 rounded-lg bg-red-500/10 border border-red-500/40 text-red-300 text-sm">
-              {verificationError}
+            <div className="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/40 text-amber-200 text-sm">
+              This namespace is not verified yet. You can upload screens without verifying, but verification permanently locks ownership to your account.
             </div>
           )}
 
-          {!freeTierApp && !currentApp?.domainVerified && verificationData && (
-            <div style={{ marginTop: 14, border: '1px solid rgba(59,130,246,0.35)', background: 'rgba(59,130,246,0.08)', borderRadius: 12, padding: 14 }}>
-              <p style={{ margin: 0, color: '#dbeafe', fontSize: 13 }}>Add a TXT record to your DNS provider:</p>
+        </div>
+      </section>
 
-              <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', minWidth: 48 }}>Host:</span>
-                  <span style={{ fontFamily: 'monospace', color: '#fff', fontSize: 12 }}>{verificationData?.txtRecord?.host || '-'}</span>
-                  <button type="button" onClick={() => handleCopyToClipboard(verificationData?.txtRecord?.host)} className="btn-ketoy btn-ketoy-secondary !text-xs !px-2 !py-1">Copy</button>
-                </div>
-
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', minWidth: 48 }}>Type:</span>
-                  <span style={{ fontFamily: 'monospace', color: '#fff', fontSize: 12 }}>TXT</span>
-                </div>
-
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', minWidth: 48 }}>Value:</span>
-                  <span style={{ fontFamily: 'monospace', color: '#fff', fontSize: 12 }}>{verificationData?.txtRecord?.value || '-'}</span>
-                  <button type="button" onClick={() => handleCopyToClipboard(verificationData?.txtRecord?.value)} className="btn-ketoy btn-ketoy-secondary !text-xs !px-2 !py-1">Copy</button>
-                </div>
-              </div>
-
-              <p style={{ margin: '10px 0 0', color: 'rgba(219,234,254,0.8)', fontSize: 12 }}>
-                Token expires at {formatDateTime(verificationData?.expiresAt)}
+      <section className="pd-fade pd-fade-2" style={{ marginBottom: 22 }}>
+        <div className="ketoy-card-surface-soft rounded-xl p-4" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <h2 style={{ color: '#fff', fontSize: 16, fontWeight: 600, margin: 0 }}>Manage API</h2>
+              <p style={{ color: 'rgba(255,255,255,0.55)', margin: '4px 0 0', fontSize: 13 }}>
+                API keys scoped to this app label: <span style={{ fontFamily: 'monospace', color: '#e2e8f0' }}>{getApiKeyPrefix()}*</span>
               </p>
+            </div>
+            <button
+              type="button"
+              onClick={loadApiKeys}
+              className="btn-ketoy btn-ketoy-secondary !px-3 !py-1.5 !text-xs"
+            >
+              Refresh
+            </button>
+          </div>
 
-              {verificationReason && (
-                <div className="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/40 text-amber-200 text-sm">
-                  {verificationReason}
-                </div>
-              )}
+          <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-2">
+            <input
+              type="text"
+              value={apiKeyLabel}
+              onChange={(event) => setApiKeyLabel(event.target.value)}
+              placeholder="e.g. local, ci, staging"
+              className="w-full sm:w-[22rem] bg-[#0f1c2e] border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"
+            />
+            <button
+              type="button"
+              onClick={handleCreateApiKey}
+              disabled={creatingApiKey}
+              className="btn-ketoy btn-ketoy-primary"
+            >
+              {creatingApiKey ? 'Creating...' : 'Create API Key'}
+            </button>
+          </div>
 
-              <div style={{ marginTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {apiKeysError && (
+            <div className="mt-3 p-3 rounded-lg bg-red-500/10 border border-red-500/40 text-red-300 text-sm">
+              {apiKeysError}
+            </div>
+          )}
+
+          {newDeveloperApiKey && (
+            <div className="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/40 text-amber-100">
+              <p className="text-sm font-medium">This key is shown once. Copy it now.</p>
+              <div className="mt-2 flex items-center gap-2">
+                <code className="flex-1 text-sm text-emerald-300 break-all">{newDeveloperApiKey}</code>
                 <button
                   type="button"
-                  onClick={handleCheckVerification}
-                  disabled={checkingVerification}
-                  className="btn-ketoy btn-ketoy-primary"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(newDeveloperApiKey)
+                    showVerificationToast('API key copied')
+                    setNewDeveloperApiKey('')
+                  }}
+                  className="btn-ketoy btn-ketoy-secondary !px-2.5 !py-1.5 !text-xs"
                 >
-                  {checkingVerification ? 'Checking...' : 'Check Verification'}
+                  Copy
                 </button>
-                {verificationReason && (
-                  <button
-                    type="button"
-                    onClick={handleCheckVerification}
-                    disabled={checkingVerification}
-                    className="btn-ketoy btn-ketoy-secondary"
-                  >
-                    Try Again
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setNewDeveloperApiKey('')}
+                  className="btn-ketoy btn-ketoy-secondary !px-2.5 !py-1.5 !text-xs"
+                >
+                  Close
+                </button>
               </div>
             </div>
           )}
+
+          <div className="mt-4 rounded-lg border border-white/10 overflow-hidden">
+            {apiKeysLoading ? (
+              <div className="p-4 text-sm text-gray-400">Loading API keys...</div>
+            ) : apiKeys.length === 0 ? (
+              <div className="p-4 text-sm text-gray-500">No API keys for this app yet.</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-[#0f1c2e] text-gray-300">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium">Label</th>
+                    <th className="text-left px-3 py-2 font-medium">Key ID</th>
+                    <th className="text-left px-3 py-2 font-medium">Created</th>
+                    <th className="text-left px-3 py-2 font-medium">Last Used</th>
+                    <th className="text-right px-3 py-2 font-medium">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/10 bg-[#111a2a]">
+                  {apiKeys.map((key) => {
+                    const id = key.keyId || key.id || key._id || ''
+                    const prefix = getApiKeyPrefix()
+                    const rawLabel = String(key.label || '')
+                    const scopedLabel = rawLabel.startsWith(prefix) ? rawLabel.slice(prefix.length) : rawLabel
+                    return (
+                      <tr key={id || rawLabel}>
+                        <td className="px-3 py-2 text-gray-200">{scopedLabel || 'default'}</td>
+                        <td className="px-3 py-2 text-gray-300 font-mono">{id ? `${String(id).slice(0, 8)}...` : '-'}</td>
+                        <td className="px-3 py-2 text-gray-300">{formatDateTime(key.createdAt)}</td>
+                        <td className="px-3 py-2 text-gray-300">{key.lastUsedAt ? formatDateTime(key.lastUsedAt) : 'Never'}</td>
+                        <td className="px-3 py-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleRevokeApiKey(id)}
+                            disabled={revokingApiKeyId === id}
+                            className="btn-ketoy btn-ketoy-danger !px-2.5 !py-1.5 !text-xs"
+                          >
+                            {revokingApiKeyId === id ? 'Revoking...' : 'Revoke'}
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       </section>
 
