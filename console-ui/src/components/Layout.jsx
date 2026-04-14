@@ -1,14 +1,21 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Outlet, Link, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { getDisplayUsername } from '../services/userDisplay'
 
+const PROFILE_COMPLETE_KEY = 'ketoy_profile_complete'
+const PROFILE_STATUS_KEY = 'ketoy_profile_status'
+
 export default function Layout() {
   const { developer, logout } = useAuthStore()
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [showAccountMenu, setShowAccountMenu] = useState(false)
+  const [profileStatus, setProfileStatus] = useState(localStorage.getItem(PROFILE_STATUS_KEY) || 'unknown')
+  const accountMenuRef = useRef(null)
   const navigate = useNavigate()
   const location = useLocation()
   const displayName = getDisplayUsername(developer)
+  const profileInitial = (displayName || 'U').trim().charAt(0).toUpperCase()
   const canGoBack = location.pathname !== '/projects'
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || ''
   const apiEnv = apiBaseUrl.includes('/dev')
@@ -45,6 +52,40 @@ export default function Layout() {
       ? 'bg-[#1A73E8]/20 text-white border border-[#1A73E8]/40'
       : 'text-gray-300 hover:text-white hover:bg-white/[0.06] border border-transparent'}
   `
+
+  useEffect(() => {
+    const handleProfileChange = (event) => {
+      const detail = event?.detail
+      const status = typeof detail === 'object' && detail?.status
+        ? detail.status
+        : (Boolean(detail) ? 'complete' : 'incomplete')
+      setProfileStatus(status)
+    }
+
+    window.addEventListener('ketoy-profile-complete-changed', handleProfileChange)
+    return () => window.removeEventListener('ketoy-profile-complete-changed', handleProfileChange)
+  }, [])
+
+  useEffect(() => {
+    if (!showAccountMenu) return undefined
+
+    const handleClickOutside = (event) => {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target)) {
+        setShowAccountMenu(false)
+      }
+    }
+
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') setShowAccountMenu(false)
+    }
+
+    window.addEventListener('mousedown', handleClickOutside)
+    window.addEventListener('keydown', handleEscape)
+    return () => {
+      window.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('keydown', handleEscape)
+    }
+  }, [showAccountMenu])
 
   return (
     <div className="h-screen overflow-hidden bg-[#070b12] text-white">
@@ -114,22 +155,72 @@ export default function Layout() {
                 </Link>
               </div>
 
-              <div className="flex items-center gap-3">
-                <span className="text-gray-300 text-sm hidden sm:block">{displayName}</span>
+              <div className="relative" ref={accountMenuRef}>
                 <button
-                  onClick={() => setShowLogoutConfirm(true)}
-                  className="btn-ketoy btn-ketoy-secondary !p-2"
-                  title="Logout"
+                  onClick={() => setShowAccountMenu((prev) => !prev)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-2 py-1.5 hover:bg-white/[0.08] transition-colors"
+                  aria-haspopup="menu"
+                  aria-expanded={showAccountMenu}
+                  aria-label="Account menu"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                  </svg>
+                  <span className="hidden sm:block text-gray-200 text-sm max-w-[140px] truncate">{displayName}</span>
+                  <span className="relative inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#1A73E8]/30 text-sm font-semibold text-white ring-1 ring-white/20">
+                    {profileInitial}
+                    {profileStatus === 'incomplete' && (
+                      <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-[#0d1624]" aria-hidden="true" />
+                    )}
+                  </span>
                 </button>
+
+                {showAccountMenu && (
+                  <div className="absolute right-0 top-11 z-40 w-56 overflow-hidden rounded-xl border border-white/15 bg-[#0f1a2a] shadow-2xl shadow-black/40" role="menu">
+                    <div className="border-b border-white/10 px-4 py-3">
+                      <p className="text-sm font-medium text-white truncate">{displayName}</p>
+                      <p className="text-xs text-gray-400">Account</p>
+                    </div>
+                    <div className="p-1.5">
+                      <Link
+                        to="/profile"
+                        onClick={() => setShowAccountMenu(false)}
+                        className="flex w-full items-center rounded-lg px-3 py-2 text-sm text-gray-200 hover:bg-white/10"
+                        role="menuitem"
+                      >
+                        Profile
+                      </Link>
+                      <a
+                        href="https://ketoy.dev/docs"
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={() => setShowAccountMenu(false)}
+                        className="flex w-full items-center rounded-lg px-3 py-2 text-sm text-gray-200 hover:bg-white/10"
+                        role="menuitem"
+                      >
+                        Docs
+                      </a>
+                      <button
+                        onClick={() => {
+                          setShowAccountMenu(false)
+                          setShowLogoutConfirm(true)
+                        }}
+                        className="mt-1 flex w-full items-center rounded-lg px-3 py-2 text-sm text-red-300 hover:bg-red-500/15"
+                        role="menuitem"
+                      >
+                        Logout
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </header>
 
           <main>
+            {profileStatus === 'incomplete' && (
+              <div className="mx-4 sm:mx-6 lg:mx-8 mt-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                Complete your profile to start using Ketoy.{' '}
+                <Link to="/profile" className="underline text-amber-200 hover:text-amber-100">Go to profile</Link>
+              </div>
+            )}
             <Outlet />
           </main>
         </div>

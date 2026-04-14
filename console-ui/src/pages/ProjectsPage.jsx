@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAppStore } from '../store/appStore'
 import { useAuthStore } from '../store/authStore'
 import { appAPI } from '../services/api'
@@ -58,6 +58,7 @@ const StatCard = ({ icon, label, value, accent }) => (
 )
 
 export default function ProjectsPage() {
+  const navigate = useNavigate()
   const { apps, setApps, setLoading, loading, error, setError } = useAppStore()
   const { developer } = useAuthStore()
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -116,7 +117,9 @@ export default function ProjectsPage() {
     return rightTime - leftTime
   })
 
-  const filtered = sortedApps.filter(
+  const filtered = sortedApps
+    .filter((app) => app && (app.appName || app.packageName || app.bundleId || app.appId || app.id))
+    .filter(
     (a) =>
       (a.appName || '').toLowerCase().includes(search.toLowerCase()) ||
       (a.packageName || '').toLowerCase().includes(search.toLowerCase())
@@ -304,9 +307,15 @@ export default function ProjectsPage() {
           ) : (
             <div style={{ display: 'grid', gap: 8 }}>
               {filtered.map((app) => (
+                (() => {
+                  const appRef = app.appId || app.id || app.packageName || app.bundleId
+                  const isDisplaced = app.bundleIdStatus === 'displaced'
+                  const isVerified = Boolean(app.domainVerified)
+
+                  return (
                 <Link
                   key={app.bundleId || app.packageName || app.id || app._id}
-                  to={`/projects/${app.packageName}`}
+                  to={`/projects/${appRef}`}
                   className="project-card"
                 >
                   {/* Left: icon + names */}
@@ -327,12 +336,46 @@ export default function ProjectsPage() {
                       </svg>
                     </div>
                     <div style={{ minWidth: 0 }}>
-                      <p className="pc-name" style={{ margin: 0, fontWeight: 500, fontSize: 14, color: '#fff', transition: 'color 0.15s', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {app.appName}
-                      </p>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <p className="pc-name" style={{ margin: 0, fontWeight: 500, fontSize: 14, color: '#fff', transition: 'color 0.15s', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {app.appName}
+                        </p>
+                        <span style={{
+                          flexShrink: 0,
+                          padding: '2px 8px',
+                          borderRadius: 999,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          border: isVerified ? '1px solid rgba(34,197,94,0.45)' : '1px solid rgba(245,158,11,0.45)',
+                          color: isVerified ? '#86efac' : '#fcd34d',
+                          background: isVerified ? 'rgba(22,163,74,0.15)' : 'rgba(217,119,6,0.14)'
+                        }}>
+                          {isVerified ? 'Verified' : 'Unverified'}
+                        </span>
+                      </div>
                       <p style={{ margin: '2px 0 0', fontSize: 12, fontFamily: 'monospace', color: 'rgba(255,255,255,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {app.packageName || '—'}
                       </p>
+                      {isDisplaced && (
+                        <div style={{ marginTop: 6, fontSize: 11, color: '#fca5a5', border: '1px solid rgba(239,68,68,0.45)', background: 'rgba(239,68,68,0.12)', borderRadius: 8, padding: '5px 8px' }}>
+                          Your bundleId was claimed by another developer. Update it in app settings.
+                        </div>
+                      )}
+                      {!isVerified && !isDisplaced && (
+                        <div style={{ marginTop: 6 }}>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.preventDefault()
+                              event.stopPropagation()
+                              navigate(`/apps/${encodeURIComponent(appRef)}/verify`)
+                            }}
+                            className="text-xs text-amber-300 hover:text-amber-200 underline bg-transparent border-none p-0"
+                          >
+                            Verify Domain
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -346,6 +389,8 @@ export default function ProjectsPage() {
                     </svg>
                   </div>
                 </Link>
+                  )
+                })()
               ))}
             </div>
           )}
