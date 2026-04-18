@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAppStore } from '../store/appStore'
 import { useAuthStore } from '../store/authStore'
 import { appAPI } from '../services/api'
+import { getDisplayUsername } from '../services/userDisplay'
 import CreateAppModal from '../components/CreateAppModal'
 
 const timeAgo = (dateString) => {
@@ -143,7 +144,8 @@ export default function ProjectsPage() {
         (a.packageName || '').toLowerCase().includes(search.toLowerCase())
     )
 
-  const displayName = developer?.username || developer?.email?.split('@')[0] || null
+  const displayName = getDisplayUsername(developer)
+  const welcomeName = String(displayName || '').split('@')[0] || null
 
   return (
     <>
@@ -353,7 +355,7 @@ export default function ProjectsPage() {
               Workspace
             </p>
             <h1 style={{ fontSize: 28, fontWeight: 700, color: '#f1f5f9', letterSpacing: '-0.03em', lineHeight: 1.2 }}>
-              {displayName ? `Welcome back, ${displayName}` : 'Your Projects'}
+              {welcomeName ? `Welcome back, ${welcomeName}` : 'Your Projects'}
             </h1>
             <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.4)', marginTop: 8 }}>
               Manage your Server-Driven UI projects

@@ -21,20 +21,37 @@ const usernameFromEmail = (email) => {
   return email.split('@')[0]?.trim() || ''
 }
 
+const normalizeUsername = (value) => {
+  if (!value || typeof value !== 'string') return ''
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  if (trimmed.includes('@')) return usernameFromEmail(trimmed)
+  return trimmed
+}
+
 export const getDisplayUsername = (developer) => {
   if (typeof window === 'undefined') {
-    return developer?.name || usernameFromEmail(developer?.email) || 'Developer'
+    return (
+      normalizeUsername(developer?.username) ||
+      normalizeUsername(developer?.name) ||
+      usernameFromEmail(developer?.email) ||
+      'Developer'
+    )
   }
 
-  const storedUsername = localStorage.getItem(USERNAME_KEY)?.trim()
+  const storedUsername = normalizeUsername(localStorage.getItem(USERNAME_KEY))
   if (storedUsername) return storedUsername
+
+  const developerUsername = normalizeUsername(developer?.username)
+  if (developerUsername) return developerUsername
 
   const token = localStorage.getItem(TOKEN_KEY)
   const payload = decodeTokenPayload(token)
-  const claimEmail = payload?.email || payload?.['cognito:username'] || ''
-  const tokenUsername = usernameFromEmail(claimEmail)
+  const tokenUsername =
+    normalizeUsername(payload?.['cognito:username']) ||
+    usernameFromEmail(payload?.email)
 
   if (tokenUsername) return tokenUsername
 
-  return developer?.name || usernameFromEmail(developer?.email) || 'Developer'
+  return normalizeUsername(developer?.name) || usernameFromEmail(developer?.email) || 'Developer'
 }
