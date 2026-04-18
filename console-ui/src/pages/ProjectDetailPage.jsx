@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '../store/appStore'
 import { useScreenStore } from '../store/screenStore'
@@ -62,6 +62,13 @@ export default function ProjectDetailPage() {
   const [creatingApiKey, setCreatingApiKey] = useState(false)
   const [revokingApiKeyId, setRevokingApiKeyId] = useState('')
   const [newDeveloperApiKey, setNewDeveloperApiKey] = useState('')
+  const [activeTab, setActiveTab] = useState('overview')
+
+  const activePackageRef = useRef(packageName)
+  const appReqIdRef = useRef(0)
+  const screensReqIdRef = useRef(0)
+  const snapshotsReqIdRef = useRef(0)
+  const apiKeysReqIdRef = useRef(0)
 
   const bundleUploadData = (() => {
     const payload = bundleUploadResult?.data?.data || bundleUploadResult?.data || bundleUploadResult
@@ -75,15 +82,24 @@ export default function ProjectDetailPage() {
   const hasBundleFailures = Boolean(bundleUploadData) && failedCount > 0
 
   useEffect(() => {
-    fetchAppDetails()
-    fetchScreens()
-    fetchSnapshots()
-  }, [packageName])
+    activePackageRef.current = packageName
+    setCurrentApp(null)
+    setScreens([])
+    setSnapshots([])
+    setNextToken(null)
+    setSnapshotsNextToken(null)
+    setError(null)
+    setSnapshotsError(null)
+
+    fetchAppDetails(packageName)
+    fetchScreens({ targetPackage: packageName })
+    fetchSnapshots({ targetPackage: packageName })
+  }, [packageName, setCurrentApp, setScreens])
 
   useEffect(() => {
     if (!bundleUploadData) return
-    fetchScreens()
-    fetchSnapshots()
+    fetchScreens({ targetPackage: packageName })
+    fetchSnapshots({ targetPackage: packageName })
   }, [bundleUploadData?.snapshotId, bundleUploadData?.updatedAt, packageName])
 
   const timeAgo = (dateString) => {
@@ -119,12 +135,17 @@ export default function ProjectDetailPage() {
     return updatedBy.email || updatedBy.username || 'unknown'
   }
 
-  const fetchAppDetails = async () => {
+  const fetchAppDetails = async (targetPackage = packageName) => {
+    const requestId = ++appReqIdRef.current
+
     try {
-      const response = await appAPI.getDetails(packageName)
+      const response = await appAPI.getDetails(targetPackage)
+      if (requestId !== appReqIdRef.current || activePackageRef.current !== targetPackage) return
+
       const appData = response.data?.data?.app || response.data?.data || response.data
       setCurrentApp(appData)
     } catch (err) {
+      if (requestId !== appReqIdRef.current || activePackageRef.current !== targetPackage) return
       setError(mapApiErrorMessage(err, 'Failed to fetch app details'))
     }
   }
@@ -199,20 +220,26 @@ export default function ProjectDetailPage() {
 
   const getApiKeyPrefix = () => `${appBundleId}::`
 
-  const loadApiKeys = async () => {
+  const loadApiKeys = async (targetBundleId = appBundleId) => {
+    const requestId = ++apiKeysReqIdRef.current
     setApiKeysLoading(true)
     setApiKeysError('')
+
     try {
       const response = await keyAPI.list()
+      if (requestId !== apiKeysReqIdRef.current) return
+
       const payload = response.data?.data || response.data || {}
       const items = Array.isArray(payload) ? payload : Array.isArray(payload.items) ? payload.items : []
-      const prefix = getApiKeyPrefix()
+      const prefix = `${targetBundleId}::`
       const appScoped = items.filter((key) => String(key?.label || '').startsWith(prefix))
       setApiKeys(appScoped)
     } catch (err) {
+      if (requestId !== apiKeysReqIdRef.current) return
       setApiKeysError(mapApiErrorMessage(err, 'Failed to load API keys'))
       setApiKeys([])
     } finally {
+      if (requestId !== apiKeysReqIdRef.current) return
       setApiKeysLoading(false)
     }
   }
@@ -253,7 +280,9 @@ export default function ProjectDetailPage() {
     }
   }
 
-  const fetchScreens = async ({ append = false, token = null } = {}) => {
+  const fetchScreens = async ({ append = false, token = null, targetPackage = packageName } = {}) => {
+    const requestId = ++screensReqIdRef.current
+
     if (append) {
       setLoadingMore(true)
     } else {
@@ -261,7 +290,9 @@ export default function ProjectDetailPage() {
     }
 
     try {
-      const response = await screenAPI.getAll(packageName, token ? { nextToken: token } : {})
+      const response = await screenAPI.getAll(targetPackage, token ? { nextToken: token } : {})
+      if (requestId !== screensReqIdRef.current || activePackageRef.current !== targetPackage) return
+
       const payload = response.data?.data
       const items = Array.isArray(payload)
         ? payload
@@ -271,7 +302,7 @@ export default function ProjectDetailPage() {
       const incomingScreens = Array.isArray(items) ? items : []
 
       if (append) {
-        setScreens([...screens, ...incomingScreens])
+        setScreens((prev) => [...prev, ...incomingScreens])
       } else {
         setScreens(incomingScreens)
       }
@@ -279,8 +310,10 @@ export default function ProjectDetailPage() {
       setNextToken(Array.isArray(payload) ? null : payload?.nextToken || null)
       setError(null)
     } catch (err) {
+      if (requestId !== screensReqIdRef.current || activePackageRef.current !== targetPackage) return
       setError(mapApiErrorMessage(err, 'Failed to fetch screens'))
     } finally {
+      if (requestId !== screensReqIdRef.current || activePackageRef.current !== targetPackage) return
       if (append) {
         setLoadingMore(false)
       } else {
@@ -289,7 +322,9 @@ export default function ProjectDetailPage() {
     }
   }
 
-  const fetchSnapshots = async ({ append = false, token = null } = {}) => {
+  const fetchSnapshots = async ({ append = false, token = null, targetPackage = packageName } = {}) => {
+    const requestId = ++snapshotsReqIdRef.current
+
     if (append) {
       setLoadingMoreSnapshots(true)
     } else {
@@ -297,7 +332,9 @@ export default function ProjectDetailPage() {
     }
 
     try {
-      const response = await bundleAPI.getAll(packageName, token ? { nextToken: token } : {})
+      const response = await bundleAPI.getAll(targetPackage, token ? { nextToken: token } : {})
+      if (requestId !== snapshotsReqIdRef.current || activePackageRef.current !== targetPackage) return
+
       const payload = response.data?.data || {}
       const incoming = Array.isArray(payload.items) ? payload.items : []
 
@@ -305,6 +342,7 @@ export default function ProjectDetailPage() {
       setSnapshotsNextToken(payload.nextToken || null)
       setSnapshotsError(null)
     } catch (err) {
+      if (requestId !== snapshotsReqIdRef.current || activePackageRef.current !== targetPackage) return
       const status = err?.response?.status
       // If bundles API is not deployed in this environment yet, keep section usable with empty state.
       if (status === 404 || status === 501) {
@@ -315,6 +353,7 @@ export default function ProjectDetailPage() {
         setSnapshotsError(mapApiErrorMessage(err, 'Failed to fetch bundle snapshots'))
       }
     } finally {
+      if (requestId !== snapshotsReqIdRef.current || activePackageRef.current !== targetPackage) return
       if (append) {
         setLoadingMoreSnapshots(false)
       } else {
@@ -507,11 +546,9 @@ export default function ProjectDetailPage() {
   })
 
   useEffect(() => {
-    if (!appBundleId) return
-    loadApiKeys()
-  }, [appBundleId])
-
-  const [activeTab, setActiveTab] = useState('overview')
+    if (activeTab !== 'apikeys' || !appBundleId) return
+    loadApiKeys(appBundleId)
+  }, [activeTab, appBundleId])
 
   const tabs = [
     { id: 'overview',  label: 'Overview' },

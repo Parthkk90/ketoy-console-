@@ -17,6 +17,7 @@ const PROFILE_STATUS_KEY = 'ketoy_profile_status'
 
 function AuthenticatedShell() {
   const location = useLocation()
+  const updateDeveloper = useAuthStore((state) => state.updateDeveloper)
   const [checkingProfile, setCheckingProfile] = useState(true)
   const [profileStatus, setProfileStatus] = useState(localStorage.getItem(PROFILE_STATUS_KEY) || 'unknown')
 
@@ -29,6 +30,14 @@ function AuthenticatedShell() {
         const payload = response?.data?.data || response?.data || {}
         const data = payload?.profile || payload?.developer || payload
         const hasUsername = Boolean(data?.username)
+
+        if (hasUsername) {
+          updateDeveloper({
+            ...data,
+            username: String(data.username).trim()
+          })
+        }
+
         const complete = typeof data?.complete === 'boolean'
           ? Boolean(data.complete && hasUsername)
           : hasUsername
@@ -70,7 +79,7 @@ function AuthenticatedShell() {
       mounted = false
       window.removeEventListener('ketoy-profile-complete-changed', handleProfileChange)
     }
-  }, [])
+  }, [updateDeveloper])
 
   if (checkingProfile) {
     return (

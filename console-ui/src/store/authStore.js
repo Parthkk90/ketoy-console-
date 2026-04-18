@@ -11,6 +11,13 @@ const USERNAME_KEY = 'ketoy_username'
 const API_KEY_STORAGE = 'ketoy_api_key'
 const API_KEY_LEGACY_STORAGE = 'ketoy_console_api_key'
 
+const normalizeProfileUsername = (value) => {
+  if (!value || typeof value !== 'string') return ''
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.includes('@')) return ''
+  return trimmed
+}
+
 export const getIdToken = () => getDeveloperTokenFromCookie() || localStorage.getItem(TOKEN_KEY)
 
 const parseStoredDeveloper = () => {
@@ -47,18 +54,28 @@ export const useAuthStore = create((set) => {
       setDeveloperTokenCookie(token)
       localStorage.setItem(TOKEN_KEY, token)
       localStorage.setItem(DEVELOPER_KEY, JSON.stringify(developer))
-      if (username) {
-        localStorage.setItem(USERNAME_KEY, username)
+      const normalizedUsername = normalizeProfileUsername(username || developer?.username)
+      if (normalizedUsername) {
+        localStorage.setItem(USERNAME_KEY, normalizedUsername)
       }
       set({ developer, developerToken: token, isAuthenticated: true })
     },
     
     updateDeveloper: (developer) => {
-      localStorage.setItem(DEVELOPER_KEY, JSON.stringify(developer))
-      if (developer?.username) {
-        localStorage.setItem(USERNAME_KEY, developer.username)
-      }
-      set({ developer })
+      set((state) => {
+        const nextDeveloper = {
+          ...(state.developer || {}),
+          ...(developer || {})
+        }
+        localStorage.setItem(DEVELOPER_KEY, JSON.stringify(nextDeveloper))
+
+        const normalizedUsername = normalizeProfileUsername(nextDeveloper?.username)
+        if (normalizedUsername) {
+          localStorage.setItem(USERNAME_KEY, normalizedUsername)
+        }
+
+        return { developer: nextDeveloper }
+      })
     },
     
     logout: () => {

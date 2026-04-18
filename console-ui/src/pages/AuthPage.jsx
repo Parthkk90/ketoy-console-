@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 
@@ -15,6 +15,26 @@ const decodeJwtPayload = (token) => {
     return JSON.parse(decoded)
   } catch {
     return null
+  }
+}
+
+const getPasswordValidation = (password) => {
+  const value = String(password || '')
+  const requirements = [
+    { ok: value.length >= 8, label: 'at least 8 characters' },
+    { ok: /[A-Z]/.test(value), label: 'one uppercase letter' },
+    { ok: /[a-z]/.test(value), label: 'one lowercase letter' },
+    { ok: /\d/.test(value), label: 'one number' },
+    { ok: /[^A-Za-z0-9]/.test(value), label: 'one symbol (e.g. ! @ # $)' }
+  ]
+
+  const missing = requirements.filter((rule) => !rule.ok).map((rule) => rule.label)
+  return {
+    isValid: missing.length === 0,
+    missing,
+    message: missing.length > 0
+      ? `Password must include ${missing.join(', ')}.`
+      : ''
   }
 }
 
@@ -36,6 +56,8 @@ export default function AuthPage() {
   const [signupMessage, setSignupMessage] = useState('')
   const [slideDirection, setSlideDirection] = useState('right')
   const [showSignupPassword, setShowSignupPassword] = useState(false)
+  const [signupPasswordTouched, setSignupPasswordTouched] = useState(false)
+  const [newPasswordTouched, setNewPasswordTouched] = useState(false)
   const [signupEmail, setSignupEmail] = useState('')
   const [formData, setFormData] = useState({
     username: '',
@@ -46,6 +68,16 @@ export default function AuthPage() {
     password: '',
     confirmationCode: ''
   })
+
+  const signupPasswordValidation = useMemo(
+    () => getPasswordValidation(signupData.password),
+    [signupData.password]
+  )
+
+  const newPasswordValidation = useMemo(
+    () => getPasswordValidation(formData.newPassword),
+    [formData.newPassword]
+  )
 
   useEffect(() => {
     if (developerToken) {
@@ -254,9 +286,16 @@ export default function AuthPage() {
 
   const handleSignUp = async (e) => {
     e.preventDefault()
-    setLoading(true)
     setError(null)
     setSignupMessage('')
+    setSignupPasswordTouched(true)
+
+    if (!signupPasswordValidation.isValid) {
+      setError(signupPasswordValidation.message)
+      return
+    }
+
+    setLoading(true)
 
     if (!COGNITO_CLIENT_ID) {
       setError('Missing VITE_COGNITO_CLIENT_ID in environment configuration.')
@@ -359,8 +398,15 @@ export default function AuthPage() {
 
   const handleNewPasswordSubmit = async (e) => {
     e.preventDefault()
-    setLoading(true)
     setError(null)
+    setNewPasswordTouched(true)
+
+    if (!newPasswordValidation.isValid) {
+      setError(newPasswordValidation.message)
+      return
+    }
+
+    setLoading(true)
 
     if (!COGNITO_CLIENT_ID) {
       setError('Missing VITE_COGNITO_CLIENT_ID in environment configuration.')
@@ -426,6 +472,8 @@ export default function AuthPage() {
       setChallengeSession('')
       setSignupStep('signup')
       setSignupData((prev) => ({ ...prev, confirmationCode: '' }))
+      setSignupPasswordTouched(false)
+      setNewPasswordTouched(false)
     }
   }
 
@@ -647,6 +695,7 @@ export default function AuthPage() {
                     placeholder="Create password"
                     value={signupData.password}
                     onChange={handleSignupChange}
+                    onBlur={() => setSignupPasswordTouched(true)}
                     required
                     className="auth-input text-sm pr-24"
                   />
@@ -658,6 +707,12 @@ export default function AuthPage() {
                     {showSignupPassword ? 'Hide' : 'Show'}
                   </button>
                 </div>
+
+                {signupPasswordTouched && signupData.password && !signupPasswordValidation.isValid && (
+                  <p className="text-[11px] text-amber-300 px-1">
+                    {signupPasswordValidation.message}
+                  </p>
+                )}
 
                 <button
                   type="submit"
@@ -762,9 +817,16 @@ export default function AuthPage() {
                 placeholder="New password"
                 value={formData.newPassword}
                 onChange={handleChange}
+                onBlur={() => setNewPasswordTouched(true)}
                 required
                 className="auth-input text-sm"
               />
+
+              {newPasswordTouched && formData.newPassword && !newPasswordValidation.isValid && (
+                <p className="text-[11px] text-amber-300 px-1">
+                  {newPasswordValidation.message}
+                </p>
+              )}
 
               <button
                 type="submit"

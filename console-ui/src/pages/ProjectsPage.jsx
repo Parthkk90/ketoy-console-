@@ -144,8 +144,8 @@ export default function ProjectsPage() {
         (a.packageName || '').toLowerCase().includes(search.toLowerCase())
     )
 
-  const displayName = getDisplayUsername(developer)
-  const welcomeName = String(displayName || '').split('@')[0] || null
+  const displayName = String(getDisplayUsername(developer) || '').trim()
+  const welcomeName = displayName || null
 
   return (
     <>
@@ -155,6 +155,11 @@ export default function ProjectsPage() {
           to   { opacity: 1; transform: translateY(0); }
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes cardAuraDrift {
+          0% { transform: translate3d(-28%, -22%, 0) rotate(0deg); }
+          50% { transform: translate3d(10%, 12%, 0) rotate(180deg); }
+          100% { transform: translate3d(-28%, -22%, 0) rotate(360deg); }
+        }
 
         .ps-anim { animation: fadeUp 0.4s cubic-bezier(0.22,1,0.36,1) both; }
         .ps-anim-1 { animation-delay: 0ms; }
@@ -167,10 +172,40 @@ export default function ProjectsPage() {
           border-radius: 14px;
           padding: 20px;
           overflow: hidden;
+          isolation: isolate;
           display: flex;
           flex-direction: column;
           gap: 12px;
           transition: border-color 0.2s;
+        }
+        .stat-card::before {
+          content: '';
+          position: absolute;
+          left: -42%;
+          top: -55%;
+          width: 170%;
+          height: 170%;
+          border-radius: 40%;
+          background: radial-gradient(circle at 30% 30%, rgba(96,165,250,0.22), rgba(59,130,246,0.1) 34%, rgba(59,130,246,0) 62%);
+          filter: blur(14px);
+          animation: cardAuraDrift 16s linear infinite;
+          opacity: 0.14;
+          pointer-events: none;
+          z-index: 0;
+        }
+        .stat-card::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          background: linear-gradient(145deg, rgba(255,255,255,0.03), rgba(15,23,42,0.22));
+          opacity: 0.45;
+          pointer-events: none;
+          z-index: 0;
+        }
+        .stat-card > * {
+          position: relative;
+          z-index: 1;
         }
         .stat-card-primary {
           background: linear-gradient(135deg, rgba(26,115,232,0.15) 0%, rgba(26,115,232,0.05) 100%);
@@ -233,13 +268,47 @@ export default function ProjectsPage() {
           flex-direction: column;
           gap: 16px;
           cursor: pointer;
+          overflow: hidden;
+          isolation: isolate;
           transition: background 0.2s, border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+        }
+        .proj-card::before {
+          content: '';
+          position: absolute;
+          left: -48%;
+          top: -62%;
+          width: 180%;
+          height: 180%;
+          border-radius: 42%;
+          background: radial-gradient(circle at 35% 30%, rgba(96,165,250,0.18), rgba(59,130,246,0.08) 35%, rgba(59,130,246,0) 64%);
+          filter: blur(16px);
+          animation: cardAuraDrift 17s linear infinite;
+          opacity: 0.1;
+          pointer-events: none;
+          z-index: 0;
+        }
+        .proj-card::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          background: linear-gradient(145deg, rgba(255,255,255,0.028), rgba(15,23,42,0.26));
+          opacity: 0.5;
+          pointer-events: none;
+          z-index: 0;
+        }
+        .proj-card > * {
+          position: relative;
+          z-index: 1;
         }
         .proj-card:hover {
           background: rgba(26,115,232,0.07);
           border-color: rgba(26,115,232,0.3);
           transform: translateY(-2px);
           box-shadow: 0 8px 32px rgba(0,0,0,0.3), 0 0 0 0 transparent;
+        }
+        .proj-card:hover::before {
+          opacity: 0.2;
         }
         .proj-card:hover .proj-arrow { color: #60a5fa; transform: translate(2px,-2px); }
         .proj-card:hover .proj-name  { color: #93c5fd; }

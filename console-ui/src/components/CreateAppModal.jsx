@@ -5,6 +5,7 @@ import { isFreeTierApp } from '../services/ktwUtils'
 import { profileAPI } from '../services/api'
 import { useAuthStore } from '../store/authStore'
 import { keyAPI } from '../services/api'
+import { getDisplayUsername } from '../services/userDisplay'
 
 const DOMAIN_PATTERN = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/
 const SEGMENT_PATTERN = /^[a-z][a-z0-9_]{2,31}$/
@@ -64,13 +65,16 @@ export default function CreateAppModal({ isOpen, onClose, onSuccess }) {
     const loadProfile = async () => {
       try {
         const response = await profileAPI.getMyProfile()
-        const profile = response.data?.data || response.data || {}
+        const payload = response?.data?.data || response?.data || {}
+        const profile = payload?.profile || payload?.developer || payload
         if (mounted && profile?.username) setProfileUsername(String(profile.username).trim())
       } catch {
-        if (mounted && developer?.username) setProfileUsername(String(developer.username).trim())
+        const fallbackName = getDisplayUsername(developer)
+        if (mounted && fallbackName) setProfileUsername(String(fallbackName).trim())
       }
     }
-    if (developer?.username) setProfileUsername(String(developer.username).trim())
+    const fallbackName = getDisplayUsername(developer)
+    if (fallbackName) setProfileUsername(String(fallbackName).trim())
     loadProfile()
     return () => { mounted = false }
   }, [isOpen, developer?.username])

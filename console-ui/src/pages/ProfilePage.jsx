@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createProfile, getProfile, updateProfile } from '../api'
 import { mapApiErrorMessage } from '../services/ktwUtils'
+import { useAuthStore } from '../store/authStore'
 
 const PURPOSE_OPTIONS = [
   { value: 'personal_testing', label: 'Personal Testing' },
@@ -32,6 +33,7 @@ const PROFILE_STATUS_KEY = 'ketoy_profile_status'
 const isUsernameValid = (value) => /^[a-z0-9-]{2,}$/.test(String(value || '').trim())
 
 export default function ProfilePage() {
+  const updateDeveloper = useAuthStore((state) => state.updateDeveloper)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [isSetupMode, setIsSetupMode] = useState(true)
@@ -76,6 +78,9 @@ export default function ProfilePage() {
         setIsSetupMode(true)
         setProfile(data || null)
         setFormData((prev) => ({ ...prev, name: data?.name || '', city: data?.city || '', country: data?.country || '' }))
+        if (data?.username) {
+          updateDeveloper({ ...data, username: String(data.username).trim() })
+        }
         markProfileComplete(false)
       } else {
         setIsSetupMode(false)
@@ -88,6 +93,7 @@ export default function ProfilePage() {
           city: data.city || '',
           country: data.country || ''
         })
+        updateDeveloper({ ...data, username: String(data.username).trim() })
         markProfileComplete(true)
       }
     } catch (err) {
@@ -142,7 +148,8 @@ export default function ProfilePage() {
 
     try {
       const response = await createProfile(payload)
-      const data = response?.data?.data || response?.data || payload
+      const payloadData = response?.data?.data || response?.data || payload
+      const data = payloadData?.profile || payloadData?.developer || payloadData
       setProfile(data)
       setFormData({
         username: data.username || payload.username,
@@ -152,6 +159,7 @@ export default function ProfilePage() {
         city: data.city || payload.city,
         country: data.country || payload.country
       })
+      updateDeveloper({ ...data, username: String(data.username || payload.username).trim() })
       setIsSetupMode(false)
       markProfileComplete(true)
       showToast('Profile created. Welcome to Ketoy.')
@@ -187,13 +195,17 @@ export default function ProfilePage() {
       }
 
       const response = await updateProfile(payload)
-      const data = response?.data?.data || response?.data || payload
+      const payloadData = response?.data?.data || response?.data || payload
+      const data = payloadData?.profile || payloadData?.developer || payloadData
       const nextProfile = {
         ...(profile || {}),
         ...data
       }
       setProfile(nextProfile)
       setFormData((prev) => ({ ...prev, ...payload }))
+      if (nextProfile?.username) {
+        updateDeveloper({ ...nextProfile, username: String(nextProfile.username).trim() })
+      }
       markProfileComplete(true)
       showToast('Profile updated')
     } catch (err) {
